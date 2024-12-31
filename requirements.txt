@@ -1,4 +1,15 @@
 torch
-akiset
 numpy
 pandas
+matplotlib
+seaborn
+networkx
+rich
+pillow
+psycopg
+torchvision
+lightning[extra]
+timm
+hydra-core
+omegaconf
+distinctipy

@@ -2,6 +2,13 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 import seaborn as sns
+from clm_math import calc_normalized_clm
+import logging
+
+from rich.logging import RichHandler
+logging.basicConfig(level="INFO", format="%(message)s", datefmt="[%X]", handlers=[RichHandler()])
+log = logging.getLogger("rich")
+
 
 outputs = torch.Tensor(np.random.rand(100, 3, 1))
 
@@ -29,7 +36,7 @@ def plot_confusion_matrix(matrix, title, cmap='Blues'):
 n = 10
 elements = 1000
 
-labels = np.zeros((elements, 1, n))
+simulated_labels = np.zeros((elements, 1, n))
 simulated_classifier_outputs = np.zeros((elements, n, 1))
 
 for i in range(elements):
@@ -39,21 +46,31 @@ for i in range(elements):
 
     label_array = np.zeros((1,n))
     label_array[0][rand_index] = 1
-    labels[i] = label_array
+    simulated_labels[i] = label_array
 
-confusion_likelihood_matrices = torch.bmm(torch.Tensor(simulated_classifier_outputs), torch.Tensor(labels))
+confusion_likelihood_matrices = torch.bmm(torch.Tensor(simulated_classifier_outputs), torch.Tensor(simulated_labels))
 #print(confusion_likelihood_matrices)
 confusion_likelihood_matrix = torch.sum(confusion_likelihood_matrices, 0)
 
+
+clm = calc_normalized_clm(torch.Tensor(simulated_classifier_outputs), torch.Tensor(simulated_labels))
+
 confusion_likelihood_matrix_column_sums = np.sum(confusion_likelihood_matrix.numpy(), axis=0, keepdims=True)
-print(f"Column sums of confusion likelihood matrix: {confusion_likelihood_matrix_column_sums}")
+#print(f"Column sums of confusion likelihood matrix: {confusion_likelihood_matrix_column_sums}")
+
+clm_row_sums = clm.sum(0)
+clm_column_sums = clm.sum(1)
+
+log.info(f"Row sums: {clm_row_sums} -> their sum: {clm_row_sums.sum()}")
+log.info(f"Column sums: {clm_column_sums} -> their sum: {clm_column_sums.sum()}")
 
 normalized_confusion_likelihood_matrix = confusion_likelihood_matrix / confusion_likelihood_matrix_column_sums
 normalized_confusion_likelihood_matrix_column_sums = np.sum(normalized_confusion_likelihood_matrix.numpy(), axis=0, keepdims=True)
-print(f"Column sums of normalized confusion likelihood matrix: {normalized_confusion_likelihood_matrix_column_sums}")
+#print(f"Column sums of normalized confusion likelihood matrix: {normalized_confusion_likelihood_matrix_column_sums}")
 
 print(confusion_likelihood_matrix)
 print(normalized_confusion_likelihood_matrix)
 
 plot_confusion_matrix(confusion_likelihood_matrix.numpy(), "Confusion Likelihood Matrix")
-plot_confusion_matrix(normalized_confusion_likelihood_matrix.numpy(), "Normalized Confusion Likelihood Matrix")
+plot_confusion_matrix(normalized_confusion_likelihood_matrix.numpy(), "Probably wrong normalized Confusion Likelihood Matrix")
+plot_confusion_matrix(clm.numpy(), "Hopefully correctly normalized clm")
