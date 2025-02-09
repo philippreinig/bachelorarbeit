@@ -1,26 +1,12 @@
 import torch
 import logging
 
-import numpy as np
-import networkx as nx
-import torchvision.transforms.v2 as transform_lib
 import pytorch_lightning as pl
-
-from matplotlib import pyplot as plt
-from psycopg import connect
-from torchvision.utils import draw_segmentation_masks
-from torchvision import tv_tensors
+import torchvision as tv
 
 from utils.aki_labels import get_aki_label_colors
-from akiset.db_helpers import get_table_graph, setup_tables
 
 log = logging.getLogger("rich")
-
-
-def overlay_segmentation(img: np.ndarray, segmentation: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-    overlayed_img = img * (1 - alpha) + segmentation * alpha
-    return overlayed_img.astype(np.uint8)
-#
 
 def divide_batch_of_tensors(t: torch.Tensor, rows: int, cols: int) -> torch.Tensor:
     """
@@ -58,65 +44,13 @@ def prepare_batch(batch):
     label_batch = torch.stack([elem[1] for elem in batch], 0)
     return input_batch, label_batch
 
-
-def show_db_graph():
-    db_params = {'host': 'localhost', 'dbname': 'akidb', 'user': 'reinig'}
-    database_connection = connect(**db_params)
-    tables, column_to_table_map, available_columns = setup_tables(database_connection)
-    table_graph = get_table_graph(database_connection, tables)
-    nx.draw(table_graph)
-    plt.show()
-
 def add_segmentation_mask_to_img(img: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
     label[label == 255] = 0
     label_transformed = torch.nn.functional.one_hot(label, num_classes=27).permute(2, 0, 1).bool()
-    img_with_segmentation_mask = draw_segmentation_masks(img, label_transformed, colors=get_aki_label_colors(), alpha=0.5)
+    img_with_segmentation_mask = tv.utils.draw_segmentation_masks(img, label_transformed, colors=get_aki_label_colors(), alpha=0.5)
     return img_with_segmentation_mask
 
-class FilterVoidLabels(transform_lib.Transform):
-    def __init__(self, valid_idx: int, void_idx: list[int], ignore_index: int) -> None:
-        """Remove void classes from the label
-
-        Args:
-            classes (List[int]): List of all classes.
-            void (List[int]): List of void classes.
-            ignore_index (int): Replaces label of void classes
-        """
-        super().__init__()
-        self.valid = valid_idx
-        self.void = torch.as_tensor(void_idx)
-        self.ignore = ignore_index
-
-    def filter(self, label: torch.Tensor) -> torch.Tensor:
-        """Replace void classes with ignore_index and
-        renumber valid classes to [0, num_classes-1]"""
-        label[torch.isin(label, self.void)] = self.ignore
-
-        for new, old in enumerate(self.valid):
-            label[label == old] = new
-
-        return label
-
-    def forward(self, image: torch.Tensor, label: torch.Tensor) -> tuple[torch.Tensor]:
-        """Replace void classes with ignore class and renumber valid classes to
-        [0, num_classes-1]. Implemented in a backwards compatible way suppporting both
-        legacy and v2 transform interfaces.
-
-        Args:
-            flat_inputs: Tuple containing image and label with length=2.
-                image (torch.Tensor): image tensor with shape [C, H, W].
-                label (torch.Tensor): corresponding label with values in [0, 33].
-        Returns:
-            image, label: Pass through image and return filtered label
-        """
-        with tv_tensors.set_return_type("TVTensor"):
-            return image, self.filter(label)
-        
-
-def sample_to_tv_tensor(sample):
-    image, label = sample
-    return tv_tensors.Image(image), tv_tensors.Mask(label)
-
+      
 def unpack_feature_pyramid(feature_pyramid):
     try:
         # This works for resnets, efficient-nets

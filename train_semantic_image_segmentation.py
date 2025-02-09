@@ -1,13 +1,14 @@
-from models.semantic_image_segmentation import SemanticImageSegmentationModel
-from lightning import Trainer
-from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
 import torch
-from utils.aki_labels import get_aki_label_names
 import logging
-from rich.logging import RichHandler
-from utils.aki_labels import get_aki_label_names
 
-logging.basicConfig(level="INFO", format="%(message)s", datefmt="[%X]", handlers=[RichHandler()])
+from lightning import Trainer
+from rich.logging import RichHandler
+from models.semantic_image_segmentation import SemanticImageSegmentationModel
+from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
+
+from aki_labels import get_aki_label_names
+
+logging.basicConfig(level="INFO", format="[%(filename)s:%(lineno)s - %(funcName)20s()] %(message)s", datefmt="[%X]", handlers=[RichHandler()])
 
 log = logging.getLogger("rich")
 

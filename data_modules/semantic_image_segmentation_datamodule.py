@@ -1,20 +1,17 @@
+import logging
+import torch
+
 from typing import Any, Callable, List, Optional
+from torch.utils.data import DataLoader
+from lightning.pytorch import LightningDataModule
+from data_modules.data_module_utils import FilterVoidLabels
 
 from akiset import AKIDataset
 
-import torch
-from torch.utils.data import DataLoader
-
 from torchvision.transforms import v2 as transform_lib
 
-from lightning.pytorch import LightningDataModule
+log = logging.getLogger("rich")
 
-from utils import FilterVoidLabels
-
-import logging
-log = logging.getLogger(__name__)
-
-from rich import inspect
 
 class SemanticImageSegmentationDataModule(LightningDataModule):
     def __init__(
@@ -51,9 +48,8 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
         self._valid_classes = [name for name in classes if name not in void]
         self._ignore_index = ignore_index
 
-        valid_idx = [classes.index(c) for c in self._valid_classes]
-        void_idx = [classes.index(c) for c in void]
-        self.filter_void_labels = FilterVoidLabels(valid_idx, void_idx, ignore_index)
+        self.valid_idx = [classes.index(c) for c in self._valid_classes]
+        self.void_idx = [classes.index(c) for c in void]
 
     @property
     def classes(self) -> List[str]:
@@ -79,7 +75,7 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             datasets=self.datasets,
             itersize=self.itersize,
             dbtype=self.dbtype,
-            #transforms=self._transforms(),
+            transforms=self._transforms(),
             shuffle=True
         )
 
@@ -90,7 +86,7 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             datasets=self.datasets,
             itersize=self.itersize,
             dbtype=self.dbtype,
-            #transforms=self._transforms()
+            transforms=self._transforms()
         )
 
         self.test_ds = AKIDataset(
@@ -100,7 +96,7 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             datasets=self.datasets,
             itersize=self.itersize,
             dbtype=self.dbtype,
-            #transforms=self._transforms()
+            transforms=self._transforms()
         )
 
     def train_dataloader(self) -> DataLoader:
@@ -141,8 +137,8 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
                 # Images Arrive as tv_tensors.Image at full resolution with dtype=float32 and values in range [0, 1]
                 # Labels Arrive as tv_tensors.Mask at full resolution with dtype=int64 and shape [H, W]
                 transform_lib.Normalize(mean=self.mean, std=self.std),
-                transform_lib.Resize(size=(886, 1600)),
+                transform_lib.RandomCrop(size=(886, 1600)),
                 # Label-Only Transforms
-                self.filter_void_labels,
+                FilterVoidLabels(self.valid_idx, self.void_idx, self.ignore_index)
             ]
         )
