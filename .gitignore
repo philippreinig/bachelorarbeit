@@ -6,3 +6,4 @@ imgs/
 test.py
 *.out
 *.vscode/
+logs/
