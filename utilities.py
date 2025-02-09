@@ -1,32 +1,26 @@
 import torch
+import logging
+
 import numpy as np
-from akiset.db_helpers import get_table_graph, setup_tables
-from matplotlib import pyplot as plt
 import networkx as nx
+import torchvision.transforms.v2 as transform_lib
+import pytorch_lightning as pl
+
+from matplotlib import pyplot as plt
 from psycopg import connect
 from torchvision.utils import draw_segmentation_masks
 from torchvision import tv_tensors
-import torchvision.transforms.v2 as transform_lib
-from data import get_aki_label_colors
 
-import logging
+from utils.aki_labels import get_aki_label_colors
+from akiset.db_helpers import get_table_graph, setup_tables
+
 log = logging.getLogger("rich")
 
-
-def is_full_hd_img(img: torch.Tensor) -> bool:
-    return img[0].size()[-1] == 1920 and img[0].size()[1] == 1280
-
-
-def get_colored_segmentation(segmentation: torch.Tensor) -> np.ndarray:
-    # Define a simple color map: as example, below is a random color map for 20 classes.
-    colors = np.random.randint(0, 255, (30, 3), dtype=np.uint8)
-    colored_segmentation = colors[segmentation.cpu().numpy()]
-    return colored_segmentation
 
 def overlay_segmentation(img: np.ndarray, segmentation: np.ndarray, alpha: float = 0.5) -> np.ndarray:
     overlayed_img = img * (1 - alpha) + segmentation * alpha
     return overlayed_img.astype(np.uint8)
-
+#
 
 def divide_batch_of_tensors(t: torch.Tensor, rows: int, cols: int) -> torch.Tensor:
     """
@@ -74,14 +68,14 @@ def show_db_graph():
     plt.show()
 
 def add_segmentation_mask_to_img(img: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
+    label[label == 255] = 0
     label_transformed = torch.nn.functional.one_hot(label, num_classes=27).permute(2, 0, 1).bool()
     img_with_segmentation_mask = draw_segmentation_masks(img, label_transformed, colors=get_aki_label_colors(), alpha=0.5)
     return img_with_segmentation_mask
 
 class FilterVoidLabels(transform_lib.Transform):
     def __init__(self, valid_idx: int, void_idx: list[int], ignore_index: int) -> None:
-        """Remove void classes from the cityscapes label.
-         Supporting legacy and v2 torchvision interface.
+        """Remove void classes from the label
 
         Args:
             classes (List[int]): List of all classes.
@@ -117,7 +111,7 @@ class FilterVoidLabels(transform_lib.Transform):
         """
         with tv_tensors.set_return_type("TVTensor"):
             return image, self.filter(label)
-
+        
 
 def sample_to_tv_tensor(sample):
     image, label = sample
@@ -131,3 +125,32 @@ def unpack_feature_pyramid(feature_pyramid):
         # This works for convnexts
         [quarter, eights, _, out] = feature_pyramid
     return quarter, out
+
+def weather_condition2numeric(weather_condition: str) -> list:
+    mapping = {
+        "Clear Sky": [1, 0],
+        "Heavy Rain": [0, 1],
+        "Dense Drizzle": [0,1],
+        "Light Drizzle": [0, 1],
+        "Light Rain": [0, 1],
+        "Mainly Clear": [1, 0],
+        "Moderate Drizzle": [0, 1],
+        "Moderate Rain": [0, 1],
+        "Overcast": [1, 0],
+        "Partly Cloudy": [1, 0],
+        "rain": [0, 1],
+        "sunny": [1, 0]
+    }
+
+    if "Snow" in weather_condition:
+        raise ValueError("Can't embed snow!")
+
+    return mapping[weather_condition]
+
+
+class MyPrintingCallback(pl.Callback):
+    def on_train_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        log.info("Starting training")
+
+    def on_train_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        log.info("Training done")

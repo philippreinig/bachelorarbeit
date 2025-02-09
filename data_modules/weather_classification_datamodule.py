@@ -13,15 +13,15 @@ from pytorch_lightning import LightningDataModule
 import logging
 log = logging.getLogger(__name__)
 
-from rich import inspect
+from utils import weather_condition2numeric
 
 class WeatherClassificationDataModule(LightningDataModule):
     def __init__(
         self,
         datasets: List[str] = ["all"],
-        batch_size: int = 32,
+        batch_size: int = 128,
         image_size: int = 1024,
-        num_workers: int = 10,
+        num_workers: int = 2,
         itersize: int = 1000,
         mean: Optional[tuple] = (0.0, 0.0, 0.0),
         std: Optional[tuple] = (1.0, 1.0, 1.0),
@@ -36,7 +36,7 @@ class WeatherClassificationDataModule(LightningDataModule):
             image_size: image resolution for training/eval
         """
         super().__init__()
-        self.scenario = "all"
+        self.scenario = "dayrainclear"
         self.datasets = datasets
 
         self.batch_size = batch_size
@@ -48,6 +48,10 @@ class WeatherClassificationDataModule(LightningDataModule):
 
         self._ignore = ignore_index
         self.dbtype = dbtype
+
+        self.train_ds = None
+        self.val_ds = None
+        self.test_ds = None
 
     @property
     def classes(self) -> List[str]:
@@ -61,20 +65,20 @@ class WeatherClassificationDataModule(LightningDataModule):
 
     @property
     def ignore_index(self) -> Optional[int]:
-        return self._ignore
+        return self._ignoreing
 
     def setup(self, stage=None):
         log.info(f"Running setup function")
-        data = {"camera": ["image"], "weather": ["all"]}
+        data = {"camera": ["image"], "weather": ["weather"]}
 
         self.train_ds = AKIDataset(
             data,
-            splits=["all"],
+            splits=["train"],
             scenario=self.scenario,
             datasets=self.datasets,
             itersize=self.itersize,
             dbtype=self.dbtype,
-            shuffle=False
+            shuffle=True
         )
 
         self.val_ds = AKIDataset(
@@ -92,7 +96,8 @@ class WeatherClassificationDataModule(LightningDataModule):
             scenario=self.scenario,
             datasets=self.datasets,
             itersize=self.itersize,
-            dbtype=self.dbtype
+            dbtype=self.dbtype,
+            limit=10_000
         )
 
     def train_dataloader(self) -> DataLoader:
@@ -101,7 +106,7 @@ class WeatherClassificationDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            collate_fn=self._preprare_train_batch()
+            collate_fn=self._prepare_batch
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -109,54 +114,26 @@ class WeatherClassificationDataModule(LightningDataModule):
             self.val_ds,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            collate_fn=self._prepare_val_or_test_batch()
+            collate_fn=self._prepare_batch
         )
 
     def test_dataloader(self) -> DataLoader:
-        """Same as *val* set, because test annotations arent public"""
+        """Same as *val* set, because test annotations are not public"""
         return DataLoader(
             self.val_ds,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            collate_fn=self._prepare_val_or_test_batch
+            collate_fn=self._prepare_batch
         )
 
-    def _preprare_train_batch(self, batch) -> Callable:
-        input_batch = torch.stack([elem[0] for elem in batch], 0)
-        inspect(input_batch)
-        label_batch = torch.stack([elem[1] for elem in batch], 0)
-        inspect(label_batch)
+    def _prepare_batch(self, batch) -> tuple[torch.Tensor, torch.Tensor]:
+        input_batch = torch.stack([self._preprocess()(elem[0]) for elem in batch], 0)
+        label_batch = torch.tensor([weather_condition2numeric(elem[1]) for elem in batch], dtype=torch.float32)
+
         return input_batch, label_batch
 
-        """
-        return transform_lib.Compose(
-            [
-                # Images Arrive as tv_tensors.Image at full resolution with dtype=float32 and values in range [0, 1]
-                # Labels Arrive as tv_tensors.Mask at full resolution with dtype=int64 and shape [H, W]
-                transform_lib.RandomHorizontalFlip(),
-                # TODO: Resizing for easier batching ...
-                transform_lib.Resize(size=(720, 1280)),
-                # transform_lib.RandomCrop(size=self.image_size),
-                # transform_lib.RandomPhotometricDistort(),
-                # transform_lib.RandomGrayscale(p=0.05),
-                # transform_lib.RandomInvert(p=0.005),
-                # transform_lib.ColorJitter(),
-                transform_lib.Normalize(mean=self.mean, std=self.std),
-                # Label-Only Transforms
-                self.filter_void_labels,
-            ]
-        )
-        """
-
-    def _prepare_val_or_test_batch(self, batch) -> Callable:
-        return transform_lib.Compose(
-            [
-                # Images Arrive as tv_tensors.Image at full resolution with dtype=float32 and values in range [0, 1]
-                # Labels Arrive as tv_tensors.Mask at full resolution with dtype=int64 and shape [H, W]
-                transform_lib.Normalize(mean=self.mean, std=self.std),
-                # TODO: Resizing for easier batching ...
-                transform_lib.Resize(size=(720, 1280)),
-                # Label-Only Transforms
-                self.filter_void_labels,
-            ]
-        )
+    def _preprocess(self) -> Callable:
+        return transform_lib.Compose([
+            transform_lib.Normalize(mean=self.mean, std=self.std),
+            transform_lib.RandomCrop(size=(886, 1600))
+        ])

@@ -4,3 +4,5 @@ imgs/
 *lightning_logs/
 *.idea/
 test.py
+*.out
+*.vscode/
