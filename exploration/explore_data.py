@@ -13,9 +13,12 @@ from torch.utils.data import DataLoader
 from rich.progress import track
 from akiset import AKIDataset
 from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
-#from utils import prepare_batch, add_segmentation_mask_to_img, divide_batch_of_tensors
+from data_modules.weather_classification_datamodule import WeatherClassificationDataModule
+from utils.data_preparation import prepare_batch, divide_batch_of_tensors
+from utils.misc import add_segmentation_mask_to_img
 
 log = logging.getLogger("rich")
+plt.ion()
 
 def overlay_mask_and_export_img(img, label, colors, export_dir, contains_masked_pixels = False):
     os.makedirs(export_dir, exist_ok=True)
@@ -104,6 +107,147 @@ def explore_sis_dm_train_dataloader(dm: SemanticImageSegmentationDataModule, col
             overlay_mask_and_export_img(img, label, colors, export_dir, contains_masked_pixels=True)
             imgs_exported += 1
 
+
+def explore_weather_classification_train_dataloader(dm: WeatherClassificationDataModule):
+    rain_labels = 0
+    sunny_labels = 0
+    total_elements = 0
+    for batch in dm.train_dataloader():
+        imgs, labels = batch
+        amt_labels = labels.shape[0]
+        #log.info(f"imgs shape: {imgs.shape}, labels shape: {labels.shape}")
+        #log.info(f"amt labels is: {amt_labels}")
+        log.info(f"Rain labels {torch.count_nonzero(labels)}, sunny labels: {amt_labels - torch.count_nonzero(labels)}")
+        rain_labels += torch.count_nonzero(labels)
+        sunny_labels += (amt_labels - torch.count_nonzero(labels))
+        #log.info(f"rain labels: {rain_labels}, sunny labels: {sunny_labels}")
+        total_elements += amt_labels
+
+    log.info(f"Total amount of rain labels in train data loader: {rain_labels}")
+    log.info(f"Total amount of sunny labels in train data loader: {sunny_labels}")
+    log.info(f"Total amount of elements in train data loader: {total_elements}")
+
+def explore_aki_ds_for_weather_classification():
+    aki_ds = AKIDataset(data= {"camera": ["image"], "weather": ["weather"]},
+                        splits=["training"],
+                        datasets=["waymo"],
+                        scenario="all",
+                        orderby="weather",
+                        limit=10)
+    
+    rain_labels = 0
+    sunny_labels = 0
+    total_elements = 0
+
+    for elem in aki_ds:
+        img, lbl = elem
+
+        rain_labels += 1 if lbl == "rain" else 0
+        sunny_labels += 1 if lbl == "sunny" else 0
+        total_elements += 1
+
+    log.info(f"Total amount of rain labels in train data loader: {rain_labels}")
+    log.info(f"Total amount of sunny labels in train data loader: {sunny_labels}")
+    log.info(f"Total amount of elements in train data loader: {total_elements}")
+
+def explore_waymo_rain_images():
+    imgs_per_slide = 36 # This should be a square number for the grid ordering to play out nicely
+    total_imgs = 720 # This should be a multiple of imgs_per_slide
+    n = int(math.sqrt(imgs_per_slide))
+
+    wcdm = WeatherClassificationDataModule(order_by="weather",
+                                           limit=total_imgs,
+                                           datasets=["waymo"],
+                                           batch_size=imgs_per_slide)
+    wcdm.setup()
+
+    imgs_exported = 0
+    for batch in wcdm.train_dataloader():
+        if imgs_exported >= total_imgs:
+            break
+
+        imgs = batch[0]
+        labels = batch[1]
+
+        fig, axs = plt.subplots(n, n)
+
+        for i in range(0, imgs_per_slide):
+            img = imgs[i]
+            ax = axs[i // n, i % n]
+            label = labels[i]
+            ax.axis("off")
+            #log.info(f"img dimensions: {img.shape}")
+            ax.imshow(img.permute(1,2,0))
+            ax.text(0,0, label)
+            #ax.imshow(add_segmentation_mask_to_img(img, label).permute(1,2,0))
+        plt.tight_layout(h_pad=0.3, w_pad=0.3)
+        plt.savefig(f"imgs/waymo_rain/{str(uuid.uuid4())}", dpi=300)
+        plt.close(fig)
+
+        imgs_exported += imgs_per_slide
+
+def waymo_sunny_vs_rainy_images():
+    total_imgs = 200 #
+
+    aki_ds_rainy = AKIDataset(data={"camera": ["image"], "weather": ["weather"]},
+                                datasets=["waymo"],
+                                limit = total_imgs/2,
+                                shuffle=True,
+                                scenario="rain")
+    aki_ds__sunny = AKIDataset(data={"camera": ["image"], "weather": ["weather"]},
+                                datasets=["waymo"],
+                                scenario="sun",
+                                shuffle=True,
+                                limit = total_imgs/2)
+    
+
+    for elem in zip(aki_ds_rainy, aki_ds__sunny):
+        print("elem loaded")
+
+        fig, axs = plt.subplots(2)
+
+        for i in range(2):
+            img = elem[i][0]
+            lbl = elem[i][1]
+            ax = axs[i]
+            ax.axis("off")
+            ax.imshow(img.permute(1,2,0))
+            ax.text(0,0, lbl)
+        plt.tight_layout()
+        plt.savefig(f"imgs/waymo_sunny_vs_rainy/{str(uuid.uuid4())}", dpi=300)
+        plt.close(fig)
+
+def calc_waymo_rainy_vs_sunny_image_stats():
+    wcdm = WeatherClassificationDataModule(order_by="weather",
+                                            limit=10_000,
+                                            datasets=["waymo"],
+                                            batch_size=32)
+    wcdm.setup()
+
+    sunny_images = []
+    rainy_images = []
+
+    for batch in wcdm.train_dataloader():
+        images, labels = batch
+        for img, lbl in zip(images, labels):
+            if lbl == 0:
+                sunny_images.append(img)
+            else:
+                rainy_images.append(img)
+
+    sunny_images = torch.stack(sunny_images)
+    rainy_images = torch.stack(rainy_images)
+
+    sunny_mean = sunny_images.mean(dim=(0, 2, 3))
+    sunny_std = sunny_images.std(dim=(0, 2, 3))
+
+    rainy_mean = rainy_images.mean(dim=(0, 2, 3))
+    rainy_std = rainy_images.std(dim=(0, 2, 3))
+
+    print(f"Sunny images mean per channel: {sunny_mean}")
+    print(f"Sunny images standard deviation per channel: {sunny_std}")
+    print(f"Rainy images mean per channel: {rainy_mean}")
+    print(f"Rainy images standard deviation per channel: {rainy_std}")
 
 """
 def explore_imgs_in_different_weather_conditions():

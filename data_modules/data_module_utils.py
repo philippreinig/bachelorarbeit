@@ -2,6 +2,9 @@ import torch
 import torchvision as tv
 import torchvision.transforms.v2 as transform_lib
 
+from akiset.akidataset import AKIDataset
+from typing import Optional
+
 class FilterVoidLabels(transform_lib.Transform):
     def __init__(self, valid_idx: int, void_idx: list[int], ignore_index: int) -> None:
         """Remove void classes from the label
@@ -40,4 +43,28 @@ class FilterVoidLabels(transform_lib.Transform):
         """
         with tv.tv_tensors.set_return_type("TVTensor"):
             return image, self.filter(label)
-  
+
+def elems_in_dataloader(dataset_size: int, limit: Optional[int] = None) -> int:
+    return min(dataset_size, limit) if limit else dataset_size
+    
+def runs_per_epoch(dataset_size: int, batch_size: int, limit: Optional[int] = None) -> int:
+    dataloader_size = elems_in_dataloader(dataset_size, limit)
+    if dataloader_size % batch_size == 0:
+        return int(dataloader_size / batch_size)
+    else:
+        return int(dataloader_size / batch_size) + 1
+    
+
+def get_label_distribution(ds: AKIDataset) -> tuple[int, int]:
+    sunny_imgs = 0
+    rainy_imgs = 0
+
+    for elem in ds:
+        if elem[1] == "sunny":
+            sunny_imgs += 1
+        elif elem[1] == "rain":
+            rainy_imgs += 1
+        else:
+            raise ValueError(f"Unknown label: {elem[1]}")
+
+    return sunny_imgs, rainy_imgs

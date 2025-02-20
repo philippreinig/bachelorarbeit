@@ -11,61 +11,66 @@ import pytorch_lightning as pl
 from pytorch_lightning import LightningDataModule
 
 import logging
-log = logging.getLogger(__name__)
+log = logging.getLogger("my_logger")
 
-from utils import weather_condition2numeric
+from utils.data_preparation import weather_condition2numeric_v2
+from data_modules.data_module_utils import runs_per_epoch, elems_in_dataloader, get_label_distribution
 
 class WeatherClassificationDataModule(LightningDataModule):
     def __init__(
         self,
         datasets: List[str] = ["all"],
-        batch_size: int = 128,
-        image_size: int = 1024,
-        num_workers: int = 2,
-        itersize: int = 1000,
+        batch_size: int = 32,
+        num_workers: int = 1,
+        order_by: str = None,
+        limit: int = 2_000_000,
+        shuffle = False,
         mean: Optional[tuple] = (0.0, 0.0, 0.0),
         std: Optional[tuple] = (1.0, 1.0, 1.0),
-        ignore_index: Optional[int] = 255,
-        dbtype = "psycopg@ants",
-        *args: Any,
-        **kwargs: Any,
+        dbtype = "psycopg@ants"
     ) -> None:
         """
         Args:
             batch_size: number of examples per training/eval step
-            image_size: image resolution for training/eval
         """
         super().__init__()
-        self.scenario = "dayrainclear"
         self.datasets = datasets
+        self.order_by = order_by
+        self.limit = limit
+        self.shuffle = shuffle
 
         self.batch_size = batch_size
-        self.image_size = image_size
-        self.num_workers = int(num_workers)  # can also be a string
-        self.itersize = itersize
+        self.num_workers = num_workers
         self.mean = torch.as_tensor(mean)
         self.std = torch.as_tensor(std)
 
-        self._ignore = ignore_index
         self.dbtype = dbtype
 
         self.train_ds = None
         self.val_ds = None
         self.test_ds = None
 
+        self.train_limit = self.limit
+        self.val_limit = 2000
+        self.test_limit = 1400
+
+        log.info(f"Limit: {self.limit}")
+        log.info(f"Datasets: {self.datasets}")
+        log.info(f"Batch size: {self.batch_size}")
+        log.info(f"Workers: {self.num_workers}")
+        log.info(f"Order by: {self.order_by}")
+        log.info(f"Shuffle: {self.shuffle}")
+
     @property
     def classes(self) -> List[str]:
         """Return: the names of valid classes"""
-        return ["clear/sunny", "rain"]
+        return ["sunny", "rain"]
 
     @property
     def num_classes(self) -> int:
         """Return: number of classes"""
         return 2
 
-    @property
-    def ignore_index(self) -> Optional[int]:
-        return self._ignoreing
 
     def setup(self, stage=None):
         log.info(f"Running setup function")
@@ -73,32 +78,41 @@ class WeatherClassificationDataModule(LightningDataModule):
 
         self.train_ds = AKIDataset(
             data,
-            splits=["train"],
-            scenario=self.scenario,
+            splits=["training"],
             datasets=self.datasets,
-            itersize=self.itersize,
+            orderby=self.order_by,
+            limit=self.train_limit,
             dbtype=self.dbtype,
-            shuffle=True
+            shuffle=self.shuffle
         )
 
         self.val_ds = AKIDataset(
             data,
             splits=["validation"],
-            scenario=self.scenario,
             datasets=self.datasets,
-            itersize=self.itersize,
-            dbtype=self.dbtype
+            dbtype=self.dbtype,
+            orderby=self.order_by,
+            limit=self.val_limit,
+            shuffle=self.shuffle
         )
 
         self.test_ds = AKIDataset(
             data,
-            splits=["validation"],
-            scenario=self.scenario,
+            splits=["testing"],
             datasets=self.datasets,
-            itersize=self.itersize,
             dbtype=self.dbtype,
-            limit=10_000
+            orderby=self.order_by,
+            limit=self.test_limit,
+            shuffle=self.shuffle
         )
+
+        train_ds_sunny_imgs, train_ds_rainy_imgs = get_label_distribution(self.train_ds)
+        val_ds_sunny_imgs, val_ds_rainy_imgs = get_label_distribution(self.val_ds)
+        test_ds_sunny_imgs, test_ds_rainy_imgs = get_label_distribution(self.test_ds)
+
+        log.info(f"Train dataloader contains {train_ds_sunny_imgs} sunny images, {train_ds_rainy_imgs} rainy images, {elems_in_dataloader(self.train_ds.count, self.limit)} total elements and yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.limit)} batches per epoch.")
+        log.info(f"Validation dataloader contains {val_ds_sunny_imgs} sunny images, {val_ds_rainy_imgs} rainy images, {elems_in_dataloader(self.val_ds.count, self.limit)} total elements and yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.limit)} batches per epoch.")
+        log.info(f"Test dataloader contains {test_ds_sunny_imgs} sunny images, {test_ds_rainy_imgs} rainy images, {elems_in_dataloader(self.test_ds.count, self.limit)} total elements and yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.limit)} batches per epoch.")
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -118,9 +132,8 @@ class WeatherClassificationDataModule(LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader:
-        """Same as *val* set, because test annotations are not public"""
         return DataLoader(
-            self.val_ds,
+            self.test_ds,    
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=self._prepare_batch
@@ -128,7 +141,9 @@ class WeatherClassificationDataModule(LightningDataModule):
 
     def _prepare_batch(self, batch) -> tuple[torch.Tensor, torch.Tensor]:
         input_batch = torch.stack([self._preprocess()(elem[0]) for elem in batch], 0)
-        label_batch = torch.tensor([weather_condition2numeric(elem[1]) for elem in batch], dtype=torch.float32)
+        label_batch = torch.tensor([weather_condition2numeric_v2(elem[1]) for elem in batch], dtype=torch.long)
+
+        #log.info(f"Labels are {label_batch}")
 
         return input_batch, label_batch
 

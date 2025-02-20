@@ -4,7 +4,7 @@ import torch
 from typing import Any, Callable, List, Optional
 from torch.utils.data import DataLoader
 from lightning.pytorch import LightningDataModule
-from data_modules.data_module_utils import FilterVoidLabels
+from data_modules.data_module_utils import FilterVoidLabels, runs_per_epoch
 
 from akiset import AKIDataset
 
@@ -22,14 +22,14 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
         image_size: int = 1024,
         num_workers: int = 10,
         itersize: int = 1000,
+        order_by: str = None,
+        limit: int = None,
         mean: Optional[tuple] = (0.0, 0.0, 0.0),
         std: Optional[tuple] = (1.0, 1.0, 1.0),
         classes: Optional[List[str]] = None,
         void: Optional[List[str]] = None,
         ignore_index: Optional[int] = 255,
-        dbtype: str = "psycopg@ants",
-        *args: Any,
-        **kwargs: Any,
+        dbtype: str = "psycopg@ants"
     ) -> None:
         super().__init__()
 
@@ -37,6 +37,8 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
 
         self.scenario = scenario
         self.datasets = datasets
+        self.order_by = order_by
+        self.limit = limit
 
         self.batch_size = batch_size
         self.image_size = image_size
@@ -74,6 +76,8 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             scenario=self.scenario,
             datasets=self.datasets,
             itersize=self.itersize,
+            orderby=self.order_by,
+            limit=self.limit,
             dbtype=self.dbtype,
             transforms=self._transforms(),
             shuffle=True
@@ -91,13 +95,18 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
 
         self.test_ds = AKIDataset(
             data,
-            splits=["validation"],
+            splits=["testing"],
             scenario=self.scenario,
             datasets=self.datasets,
             itersize=self.itersize,
             dbtype=self.dbtype,
             transforms=self._transforms()
         )
+
+        log.info(f"Train dataloader contains {self.train_ds.count} elements. It yields {runs_per_epoch(self.train_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Validation dataloader contains {self.val_ds.count} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Test dataloader contains {self.test_ds.count} elements. It yields {runs_per_epoch(self.test_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
+
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(

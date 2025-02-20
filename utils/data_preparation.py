@@ -1,12 +1,4 @@
 import torch
-import logging
-
-import pytorch_lightning as pl
-import torchvision as tv
-
-from utils.aki_labels import get_aki_label_colors
-
-log = logging.getLogger("rich")
 
 def divide_batch_of_tensors(t: torch.Tensor, rows: int, cols: int) -> torch.Tensor:
     """
@@ -40,25 +32,9 @@ def divide_batch_of_tensors(t: torch.Tensor, rows: int, cols: int) -> torch.Tens
     return new_tensor
 
 def prepare_batch(batch):
-    input_batch = torch.stack([elem[0] for elem in batch], 0)
-    label_batch = torch.stack([elem[1] for elem in batch], 0)
+    input_batch = torch.stack([elem0 for elem in batch], 0)
+    label_batch = torch.stack([elem0 for elem in batch], 0)
     return input_batch, label_batch
-
-def add_segmentation_mask_to_img(img: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
-    label[label == 255] = 0
-    label_transformed = torch.nn.functional.one_hot(label, num_classes=27).permute(2, 0, 1).bool()
-    img_with_segmentation_mask = tv.utils.draw_segmentation_masks(img, label_transformed, colors=get_aki_label_colors(), alpha=0.5)
-    return img_with_segmentation_mask
-
-      
-def unpack_feature_pyramid(feature_pyramid):
-    try:
-        # This works for resnets, efficient-nets
-        [_, quarter, eights, _, out] = feature_pyramid
-    except ValueError:
-        # This works for convnexts
-        [quarter, eights, _, out] = feature_pyramid
-    return quarter, out
 
 def weather_condition2numeric(weather_condition: str) -> list:
     mapping = {
@@ -81,10 +57,23 @@ def weather_condition2numeric(weather_condition: str) -> list:
 
     return mapping[weather_condition]
 
+def weather_condition2numeric_v2(weather_condition: str) -> list:
+    mapping = {
+        "Clear Sky": 0,
+        "Heavy Rain": 1,
+        "Dense Drizzle": 1,
+        "Light Drizzle": 1,
+        "Light Rain": 1,
+        "Mainly Clear": 0,
+        "Moderate Drizzle": 1,
+        "Moderate Rain": 1,
+        "Overcast": 0,
+        "Partly Cloudy": 0,
+        "rain": 1,
+        "sunny": 0
+    }
 
-class MyPrintingCallback(pl.Callback):
-    def on_train_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        log.info("Starting training")
+    if "Snow" in weather_condition:
+        raise ValueError("Can't embed snow!")
 
-    def on_train_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        log.info("Training done")
+    return mapping[weather_condition]
