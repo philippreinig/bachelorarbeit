@@ -219,30 +219,43 @@ def waymo_sunny_vs_rainy_images():
 
 def calc_waymo_rainy_vs_sunny_image_stats():
     wcdm = WeatherClassificationDataModule(order_by="weather",
-                                            limit=10_000,
-                                            datasets=["waymo"],
-                                            batch_size=32)
+                                           limit=10_000,
+                                           datasets=["waymo"],
+                                           batch_size=32)
     wcdm.setup()
 
-    sunny_images = []
-    rainy_images = []
+    # Initialize counters and accumulators
+    sunny_mean = torch.zeros(3)
+    sunny_M2 = torch.zeros(3)
+    sunny_pixels = 0
 
-    for batch in wcdm.train_dataloader():
-        images, labels = batch
+    rainy_mean = torch.zeros(3)
+    rainy_M2 = torch.zeros(3)
+    rainy_pixels = 0
+
+    for batch in track(wcdm.train_dataloader(), total=313):
+        images, labels = batch  # images: (B, C, H, W), labels: (B)
+
         for img, lbl in zip(images, labels):
-            if lbl == 0:
-                sunny_images.append(img)
-            else:
-                rainy_images.append(img)
+            img = img.view(3, -1)  # Flatten spatial dimensions
+            batch_mean = img.mean(dim=1)
+            batch_var = img.var(dim=1, unbiased=False)
+            batch_pixels = img.shape[1]
 
-    sunny_images = torch.stack(sunny_images)
-    rainy_images = torch.stack(rainy_images)
+            if lbl == 0:  # Sunny images
+                delta = batch_mean - sunny_mean
+                sunny_mean += delta * (batch_pixels / (sunny_pixels + batch_pixels))
+                sunny_M2 += batch_var * batch_pixels + delta**2 * (sunny_pixels * batch_pixels) / (sunny_pixels + batch_pixels)
+                sunny_pixels += batch_pixels
 
-    sunny_mean = sunny_images.mean(dim=(0, 2, 3))
-    sunny_std = sunny_images.std(dim=(0, 2, 3))
+            else:  # Rainy images
+                delta = batch_mean - rainy_mean
+                rainy_mean += delta * (batch_pixels / (rainy_pixels + batch_pixels))
+                rainy_M2 += batch_var * batch_pixels + delta**2 * (rainy_pixels * batch_pixels) / (rainy_pixels + batch_pixels)
+                rainy_pixels += batch_pixels
 
-    rainy_mean = rainy_images.mean(dim=(0, 2, 3))
-    rainy_std = rainy_images.std(dim=(0, 2, 3))
+    sunny_std = torch.sqrt(sunny_M2 / sunny_pixels)
+    rainy_std = torch.sqrt(rainy_M2 / rainy_pixels)
 
     print(f"Sunny images mean per channel: {sunny_mean}")
     print(f"Sunny images standard deviation per channel: {sunny_std}")

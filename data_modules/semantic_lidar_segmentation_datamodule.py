@@ -13,19 +13,16 @@ from torchvision.transforms import v2 as transform_lib
 log = logging.getLogger("rich")
 
 
-class SemanticImageSegmentationDataModule(LightningDataModule):
+class SemanticLidarSegmentationDataModule(LightningDataModule):
     def __init__(
         self,
         scenario: str = "all",
         datasets: List[str] = ["all"],
         batch_size: int = 32,
-        image_size: int = 1024,
         num_workers: int = 10,
         itersize: int = 1000,
         order_by: str = None,
         limit: int = None,
-        mean: Optional[tuple] = (0.0, 0.0, 0.0),
-        std: Optional[tuple] = (1.0, 1.0, 1.0),
         classes: Optional[List[str]] = None,
         void: Optional[List[str]] = None,
         ignore_index: Optional[int] = 255,
@@ -41,17 +38,18 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
         self.limit = limit
 
         self.batch_size = batch_size
-        self.image_size = image_size
         self.num_workers = num_workers
         self.itersize = itersize
-        self.mean = torch.as_tensor(mean)
-        self.std = torch.as_tensor(std)
 
         self._valid_classes = [name for name in classes if name not in void]
         self._ignore_index = ignore_index
 
         self.valid_idx = [classes.index(c) for c in self._valid_classes]
         self.void_idx = [classes.index(c) for c in void]
+
+        log.info(f"Valid indxs: {self.valid_idx}")
+        log.info(f"Void indxs: {self.void_idx}")
+        log.info(f"Ignore index: {self.ignore_index}")
 
     @property
     def classes(self) -> List[str]:
@@ -68,7 +66,7 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
         return self._ignore_index
 
     def setup(self, stage=None):
-        data = {"camera": ["image"], "camera_segmentation": ["camera_segmentation"]}
+        data = {"lidar": ["points"], "lidar_segmentation": ["lidar_segmentation"]}
 
         self.train_ds = AKIDataset(
             data,
@@ -79,7 +77,6 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             orderby=self.order_by,
             limit=self.limit,
             dbtype=self.dbtype,
-            transforms=self._transforms(),
             shuffle=True
         )
 
@@ -90,7 +87,6 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             datasets=self.datasets,
             itersize=self.itersize,
             dbtype=self.dbtype,
-            transforms=self._transforms()
         )
 
         self.test_ds = AKIDataset(
@@ -100,12 +96,11 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             datasets=self.datasets,
             itersize=self.itersize,
             dbtype=self.dbtype,
-            transforms=self._transforms()
         )
 
         log.info(f"Train dataloader contains {self.train_ds.count} elements. It yields {runs_per_epoch(self.train_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
-        #log.info(f"Validation dataloader contains {self.val_ds.count} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
-        #log.info(f"Test dataloader contains {self.test_ds.count} elements. It yields {runs_per_epoch(self.test_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Validation dataloader contains {self.val_ds.count} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Test dataloader contains {self.test_ds.count} elements. It yields {runs_per_epoch(self.test_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
 
 
     def train_dataloader(self) -> DataLoader:
@@ -114,7 +109,7 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            #collate_fn=self._prepare_batch
+            collate_fn=self._prepare_batch
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -122,7 +117,7 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             self.val_ds,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            #collate_fn=self._prepare_batch
+            collate_fn=self._prepare_batch
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -131,23 +126,37 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             self.val_ds,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            #collate_fn=self._prepare_batch
+            collate_fn=self._prepare_batch
         )
 
     def _prepare_batch(self, batch) -> tuple[torch.Tensor, torch.Tensor]:
-        input_batch = torch.stack([elem[0] for elem in batch], 0)
-        label_batch = torch.stack([elem[1] for elem in batch], 0)
-        return input_batch, label_batch
 
+        def pad_batch(pcs: list[torch.Tensor], lbls: list[torch.Tensor], pad_value=0) -> torch.Tensor:
+            max_points = max(pc.shape[0] for pc in pcs)
+            padded_point_clouds = []
+            padded_labels = []
 
-    def _transforms(self) -> Callable:
-        return transform_lib.Compose(
-            [
-                # Images Arrive as tv_tensors.Image at full resolution with dtype=float32 and values in range [0, 1]
-                # Labels Arrive as tv_tensors.Mask at full resolution with dtype=int64 and shape [H, W]
-                transform_lib.Normalize(mean=self.mean, std=self.std),
-                transform_lib.RandomCrop(size=(886, 1600)),
-                # Label-Only Transforms
-                FilterVoidLabels(self.valid_idx, self.void_idx, self.ignore_index)
-            ]
-        )
+            for pc, lbl in zip(pcs, lbls):
+                if pc.shape[0] < max_points:
+                    pc_padded = torch.cat([pc,
+                                           torch.full((max_points - pc.shape[0], pc.shape[1]), pad_value)], dim=0)
+                    lbl_padded = torch.cat([lbl,
+                                            torch.full([max_points - lbl.shape[0]], self.ignore_index)], dim=0)
+                    padded_point_clouds.append(pc_padded)
+                    padded_labels.append(lbl_padded)
+                else:
+                    padded_point_clouds.append(pc)
+                    padded_labels.append(lbl)                    
+
+            return torch.stack(padded_point_clouds), torch.stack(padded_labels)
+        
+        point_clouds = [elem[0] for elem in batch]
+        labels = [elem[1] for elem in batch]
+        
+        point_clouds_padded, labels_padded = pad_batch(point_clouds, labels)
+
+        for void_lbl in self.void_idx:
+            labels_padded[labels_padded == void_lbl] = self.ignore_index       
+
+        return point_clouds_padded, labels_padded
+

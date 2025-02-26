@@ -85,4 +85,4 @@ class WeatherClassifier(pl.LightningModule):
 
     def configure_optimizers(self):
         # Define optimizer
-        return torch.optim.Adam(self.parameters() ,lr=1e-5)
+        return torch.optim.Adam(self.parameters() ,lr=1e-6)

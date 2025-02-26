@@ -1,6 +1,3 @@
-from typing import Sequence, Union
-
-import time
 import timm
 import torch
 import torchmetrics as tm
@@ -71,7 +68,8 @@ class SemanticImageSegmentationModel(LightningModule):
         self,
         num_classes: int,
         ignore_index: int = 255,
-        compile: bool = False
+        compile: bool = False,
+        train_epochs: int = 30
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -87,13 +85,15 @@ class SemanticImageSegmentationModel(LightningModule):
 
         self.num_classes = num_classes
         self.ignore_index = ignore_index
+        
+        self.train_epochs = train_epochs
 
 
         self.train_acc = tm.classification.Accuracy(task="multiclass", num_classes=self.num_classes, ignore_index=ignore_index, average="micro")
         self.val_acc = tm.classification.Accuracy(task="multiclass", num_classes=self.num_classes, ignore_index=ignore_index, average="micro")
         self.test_acc = tm.classification.Accuracy(task="multiclass", num_classes=self.num_classes, ignore_index=ignore_index, average="micro")
 
-        self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=255)
+        self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_index)
 
     def forward(self, images):
         feature_pyramid = self.encoder(images)
@@ -137,11 +137,11 @@ class SemanticImageSegmentationModel(LightningModule):
         return dict(loss=loss, logits=logits)
 
     def configure_optimizers(self):
-        opt = torch.optim.Adam(self.parameters(), lr=1e-3, weight_decay=1e-6)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, 5000, 1e-7)
+        opt = torch.optim.Adam(self.parameters(), lr=1e-4, weight_decay=1e-6)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, self.train_epochs, 1e-7)
         schedule = {
             "scheduler": scheduler,
-            "interval": "step",  # or 'epoch'
+            "interval": 'epoch',
             "frequency": 1,
         }
 

@@ -25,8 +25,6 @@ class WeatherClassificationDataModule(LightningDataModule):
         order_by: str = None,
         limit: int = 2_000_000,
         shuffle = False,
-        mean: Optional[tuple] = (0.0, 0.0, 0.0),
-        std: Optional[tuple] = (1.0, 1.0, 1.0),
         dbtype = "psycopg@ants"
     ) -> None:
         """
@@ -41,8 +39,6 @@ class WeatherClassificationDataModule(LightningDataModule):
 
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.mean = torch.as_tensor(mean)
-        self.std = torch.as_tensor(std)
 
         self.dbtype = dbtype
 
@@ -53,6 +49,13 @@ class WeatherClassificationDataModule(LightningDataModule):
         self.train_limit = self.limit
         self.val_limit = 2000
         self.test_limit = 1400
+
+        self.sunny_mean = torch.tensor([0.3291, 0.3426, 0.3622])
+        self.sunny_std = torch.tensor([0.1929, 0.2077, 0.2460])
+        self.rainy_mean = torch.tensor([0.3306, 0.3650, 0.4050])
+        self.rainy_std = torch.tensor([0.2084, 0.2113, 0.2848])
+        self.normalize_sunny = transform_lib.Normalize(mean=self.sunny_mean, std=self.sunny_std)
+        self.normalize_rainy = transform_lib.Normalize(mean=self.rainy_mean, std=self.rainy_std)
 
         log.info(f"Limit: {self.limit}")
         log.info(f"Datasets: {self.datasets}")
@@ -140,15 +143,20 @@ class WeatherClassificationDataModule(LightningDataModule):
         )
 
     def _prepare_batch(self, batch) -> tuple[torch.Tensor, torch.Tensor]:
-        input_batch = torch.stack([self._preprocess()(elem[0]) for elem in batch], 0)
         label_batch = torch.tensor([weather_condition2numeric_v2(elem[1]) for elem in batch], dtype=torch.long)
 
-        #log.info(f"Labels are {label_batch}")
+        img_batch = torch.stack([self._preprocess(label_batch[i])(elem[0]) for i, elem in enumerate(batch)], 0)
 
-        return input_batch, label_batch
+        return img_batch, label_batch
 
-    def _preprocess(self) -> Callable:
-        return transform_lib.Compose([
-            transform_lib.Normalize(mean=self.mean, std=self.std),
-            transform_lib.RandomCrop(size=(886, 1600))
-        ])
+    def _preprocess(self, label: int) -> Callable:
+        if label == 0: # Sunny image
+            return transform_lib.Compose([
+                self.normalize_sunny,
+                transform_lib.RandomCrop(size=(886, 1600))
+            ])
+        else: # Rainy image
+            return transform_lib.Compose([
+                self.normalize_rainy,
+                transform_lib.RandomCrop(size=(886, 1600))
+            ])
