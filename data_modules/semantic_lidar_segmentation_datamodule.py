@@ -1,19 +1,18 @@
 import logging
 import torch
 
-from typing import Any, Callable, List, Optional
+import lightning as L
+
+from typing import List, Optional
 from torch.utils.data import DataLoader
-from lightning.pytorch import LightningDataModule
-from data_modules.data_module_utils import FilterVoidLabels, runs_per_epoch
+from data_modules.data_module_utils import runs_per_epoch
 
 from akiset import AKIDataset
-
-from torchvision.transforms import v2 as transform_lib
 
 log = logging.getLogger("rich")
 
 
-class SemanticLidarSegmentationDataModule(LightningDataModule):
+class SemanticLidarSegmentationDataModule(L.LightningDataModule):
     def __init__(
         self,
         scenario: str = "all",
@@ -23,6 +22,7 @@ class SemanticLidarSegmentationDataModule(LightningDataModule):
         itersize: int = 1000,
         order_by: str = None,
         limit: int = None,
+        downsampled_pointcloud_size: Optional[int] = None,
         classes: Optional[List[str]] = None,
         void: Optional[List[str]] = None,
         ignore_index: Optional[int] = 255,
@@ -37,6 +37,8 @@ class SemanticLidarSegmentationDataModule(LightningDataModule):
         self.order_by = order_by
         self.limit = limit
 
+        self.downsampled_pointcloud_size = downsampled_pointcloud_size
+
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.itersize = itersize
@@ -50,6 +52,13 @@ class SemanticLidarSegmentationDataModule(LightningDataModule):
         log.info(f"Valid indxs: {self.valid_idx}")
         log.info(f"Void indxs: {self.void_idx}")
         log.info(f"Ignore index: {self.ignore_index}")
+        log.info(f"Downsampled pointcloud size: {self.downsampled_pointcloud_size}")
+        log.info(f"Scenario: {self.scenario}")
+        log.info(f"Batch size: {self.batch_size}")
+        log.info(f"Num workers: {self.num_workers}")
+        log.info(f"Oder by: {self.order_by}")
+        log.info(f"Limit: {self.limit}")
+        log.info(f"Datasets: {self.datasets}")
 
     @property
     def classes(self) -> List[str]:
@@ -67,6 +76,10 @@ class SemanticLidarSegmentationDataModule(LightningDataModule):
 
     def setup(self, stage=None):
         data = {"lidar": ["points"], "lidar_segmentation": ["lidar_segmentation"]}
+
+        if self.downsampled_pointcloud_size:
+            data = {"lidar":  [f"points_downsampled_{self.downsampled_pointcloud_size % 1000}k"], "lidar_segmentation": [f"lidar_segmentation_downsampled_{self.downsampled_pointcloud_size % 1000}k"]}
+
 
         self.train_ds = AKIDataset(
             data,

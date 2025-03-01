@@ -1,19 +1,17 @@
-
 import torch
 import logging
 
 import torch.nn.functional as F
 import torch_geometric.transforms as T
 import torchmetrics as tm
-
-from lightning.pytorch import LightningModule
+import lightning as L
 
 from torch_geometric.nn import MLP, fps, global_max_pool, radius, knn_interpolate
 from torch_geometric.nn.conv import PointConv
 
 log = logging.getLogger("rich")
 
-class SetAbstraction(LightningModule):
+class SetAbstraction(L.LightningModule):
     def __init__(self, ratio, radius, nn):
         super().__init__()
         self.ratio = ratio
@@ -29,7 +27,7 @@ class SetAbstraction(LightningModule):
         pos, batch = pos[idx], batch[idx]
         return x, pos, batch
 
-class GlobalSetAbstraction(LightningModule):
+class GlobalSetAbstraction(L.LightningModule):
     def __init__(self, nn):
         super().__init__()
         self.nn = nn
@@ -41,7 +39,7 @@ class GlobalSetAbstraction(LightningModule):
         batch = torch.arange(x.size(0), device=batch.device)
         return x, pos, batch
 
-class FeaturePropagation(LightningModule):
+class FeaturePropagation(L.LightningModule):
     def __init__(self, nn, k: int = 3):
         super().__init__()
         self.mlp = MLP(nn)
@@ -62,12 +60,12 @@ class FeaturePropagation(LightningModule):
         return self.mlp(interpolated), new_pos, new_batch
 
 
-class PointNet2(LightningModule):
+class PointNet2(L.LightningModule):
     def __init__(
         self,
         num_classes: int,
-        set_abstraction_ratio_1: float = 0.75,
-        set_abstraction_ratio_2: float = 0.5,
+        set_abstraction_ratio_1: float = 0.35,
+        set_abstraction_ratio_2: float = 0.15,
         set_abstraction_radius_1: float = 0.33,
         set_abstraction_radius_2: float = 0.25,
         dropout: float = 0.1,
@@ -104,9 +102,8 @@ class PointNet2(LightningModule):
 
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_index)
 
-    def forward(self, point_clouds):
-        log.info(f"Memory allocated at start of forward: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
 
+    def forward(self, point_clouds):
         batch_size, num_points, _ = point_clouds.size()
         positions = point_clouds.view(-1, 3)
         batch = torch.arange(batch_size, device=positions.device).repeat_interleave(num_points)
@@ -114,39 +111,26 @@ class PointNet2(LightningModule):
 
         # Set Abstractions
         sa0_out = (features, positions, batch)
-        log.info(f"Before sa1_module: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
         sa1_out = self.sa1_module(*sa0_out)
-
-        log.info(f"Before sa2_module: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
         sa2_out = self.sa2_module(*sa1_out)
 
         # Feature Propagation
         x, pos, batch = sa2_out
-        log.info(f"Before fp2_module: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
         x, pos, batch = self.fp2_module(x, pos, sa1_out[1], batch, sa1_out[2])
-
-        log.info(f"Before fp1_module: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
         x, pos, batch = self.fp1_module(x, sa1_out[1], sa0_out[1], batch, sa0_out[2])
 
-        log.info(f"Before MLP: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
         logits = self.mlp(x)
-
-        log.info(f"End of forward pass: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
 
         return logits
 
 
     def step(self, batch):
         point_clouds, labels = batch
-        log.info(f"Memory allocated before forward pass: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
 
         logits = self(point_clouds)
         labels = labels.view(-1)
 
-        log.info(f"Memory allocated after forward pass: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
-
         loss = self.loss_fn(logits, labels)
-        log.info(f"Memory allocated after loss calculation: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
 
         return loss, logits, labels 
 
@@ -154,22 +138,24 @@ class PointNet2(LightningModule):
         log.info(f"Training step {batch_idx}")
         loss, logits, labels = self.step(batch)
         
-        self.train_acc(logits, labels)
+        train_acc_step = self.train_acc(logits, labels)
 
         self.log("train/loss", loss)
         self.log("train/accuracy", self.train_acc)
 
-        log.info(f"Loss and accuracy after training step {batch_idx}: {loss}, {self.train_acc}")
+        log.info(f"Loss and accuracy after training step {batch_idx}: {loss}, {train_acc_step}")
 
         return dict(loss=loss, logits=logits)
 
     def validation_step(self, batch, batch_idx):
         loss, logits, labels = self.step(batch)
 
-        self.val_acc(logits, labels)
+        val_acc = self.val_acc(logits, labels)
 
         self.log("validation/loss", loss)
         self.log("validation/accuracy", self.val_acc)
+
+        log.info(f"Validation loss and accuracy after step {batch_idx}: {loss}, {val_acc}")
         
         return dict(loss=loss, logits=logits)
 

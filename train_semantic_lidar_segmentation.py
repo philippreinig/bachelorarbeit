@@ -1,18 +1,19 @@
 import torch
 import logging
 
-import torchsummary as ts
+import torchinfo as ti
+import lightning as L
 
-from lightning import Trainer
-from pytorch_lightning.loggers import WandbLogger
+from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
 from models.semantic_lidar_segmentation import PointNet2
 from data_modules.semantic_lidar_segmentation_datamodule import SemanticLidarSegmentationDataModule
 from utils.aki_labels import aki_labels
 
 from utils.aki_labels import get_aki_label_names
-from utils.visualization import visualize_pcl_matplotlib, visualize_pcl_open3d
+from utils.visualization import visualize_pcl_matplotlib
 
-logging.basicConfig(level="INFO", format="[%(filename)s:%(lineno)s - %(funcName)20s()] %(message)s", datefmt="[%X]")
+logging.basicConfig(level="INFO", format="[%(filename)s:%(lineno)s - %(funcName)s] %(message)s", datefmt="[%X]")
 
 log = logging.getLogger("rich")
 
@@ -28,7 +29,8 @@ def main():
     datasets = ["waymo"]
     order_by = "weather"
     limit = 10_000
-    batch_size = 8
+    batch_size = 3
+    downsampled_pointcloud_size = 16384
     classes = get_aki_label_names()
     void_classes = ["void", "static"]
 
@@ -49,20 +51,24 @@ def main():
                                                      classes=classes,
                                                      void=void_classes)
 
-    log.info(f"Memory allocated after model initialization: {torch.cuda.memory_allocated() / (1024 ** 2):.2f} MB")
-
     valid_classes = datamodule.classes
     amt_valid_classes = len(valid_classes)
     
     log.info(f"There are {amt_valid_classes} valid classes of the total {len(get_aki_label_names())} classes: {valid_classes}")
 
+    checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/semantic_lidar_segmentation/",
+                                          filename='{epoch:02d}-{val_loss:.5f}',
+                                          monitor='val_loss',
+                                          save_top_k=-1,  # Save all checkpoints
+                                          every_n_epochs=1)
+
     # Create model
     segmentation_model = PointNet2(len(aki_labels), train_epochs=max_epochs)
-    #ts.summary(segmentation_model, (100000, 3))
+    ti.summary(segmentation_model, (batch_size, downsampled_pointcloud_size if downsampled_pointcloud_size else 143_000, 3))
     
     # Create trainer and start training
-    trainer = Trainer(max_epochs=max_epochs, logger = wandb_logger)
-    log.info(f"Starting training")
+    trainer = L.Trainer(max_epochs=max_epochs, logger = wandb_logger, callbacks=[checkpoint_callback], precision="16-mixed")
+
     trainer.fit(segmentation_model, datamodule)
     trainer.validate(segmentation_model, datamodule)
     trainer.test(segmentation_model, datamodule)

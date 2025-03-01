@@ -15,7 +15,10 @@ wandb
 open3d-cpu
 torch_geometric
 wheel
-torchsummary
-torch-cluster --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
-torch-sparse --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
-torch-scatter --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
+torchinfo
+
+# This somehow don't install with the cuda libraries when installed from this requirements.txt
+# Use the following command to install them: pip install --force-reinstall --no-cache-dir torch-cluster torch-sparse torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html 
+#torch-cluster --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
+#torch-sparse --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
+#torch-scatter --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
