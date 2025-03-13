@@ -3,9 +3,12 @@
 #SBATCH --partition=gpu
 #SBATCH --mail-type=END,FAIL    
 #SBATCH --mail-user=reinig@ovgu.de
+#SBATCH --nodes=1
 #SBATCH --gpus=h100:1
+##SBATCH --ntasks-per-node=2
+##SBATCH --gpus-per-task=h100:1
 #SBATCH --cpus-per-gpu=32
-#SBATCH --mem=100G
+#SBATCH --mem=150G
 #SBATCH --output=../logs/slurm/%x-%j.out
 
 cd ~/development/bachelorarbeit/

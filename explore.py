@@ -2,12 +2,13 @@ import logging
 
 from rich.logging import RichHandler
 from exploration.explore_data import explore_aki_dataset, \
-                                        explore_sis_dm_train_dataloader, \
-                                        explore_weather_classification_train_dataloader, \
-                                        explore_aki_ds_for_weather_classification, \
-                                        explore_waymo_rain_images, \
-                                        waymo_sunny_vs_rainy_images, \
-                                        calc_waymo_rainy_vs_sunny_image_stats
+                                     explore_sis_dm_train_dataloader, \
+                                     explore_weather_classification_train_dataloader, \
+                                     explore_aki_ds_for_weather_classification, \
+                                     explore_waymo_rain_images, \
+                                     waymo_sunny_vs_rainy_images, \
+                                     calc_waymo_rainy_vs_sunny_image_stats, \
+                                     explore_point_cloud_img_projection_datamodule
 from akiset import AKIDataset
 from utils.aki_labels import get_aki_label_names, get_aki_label_colors_rgb
 from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
@@ -22,11 +23,11 @@ def main():
     log.info(f"Exploration script started")
     # 1) Create image of aki label colors, names and ids
     
-    # 2) Explore AkiDataset
+    #2) Explore AkiDataset
     #log.info(f"Exporting images with their semantic segmentation masks from the AKIDataset class")
     #aki_ds = AKIDataset({"camera": ["image"], "camera_segmentation": ["camera_segmentation"]},
     #                    scenario="all",
-    #                    datasets=["all"])
+    #                    datasets=["waymo"])
     #explore_aki_dataset(aki_ds, colors=get_aki_label_colors_rgb())
 
     # 3) Explore train loader of SemanticImageSegmentationDataModule
@@ -58,7 +59,10 @@ def main():
     #waymo_sunny_vs_rainy_images()
 
     #7) Calc stats of sunny vs rainy images of the waymo dataset
-    calc_waymo_rainy_vs_sunny_image_stats()
+    #calc_waymo_rainy_vs_sunny_image_stats()
+
+    #8) Explore point cloud img projection datamodule
+    explore_point_cloud_img_projection_datamodule()
 
 
 if __name__ == "__main__":

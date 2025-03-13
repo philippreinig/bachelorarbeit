@@ -3,6 +3,7 @@ import logging
 
 from lightning import Trainer
 from rich.logging import RichHandler
+from lightning.pytorch.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from models.semantic_image_segmentation import SemanticImageSegmentationModel
 from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
@@ -21,7 +22,6 @@ def main():
     scenario = "all"
     datasets = ["waymo"]
     order_by = "weather"
-    limit = 10_000
     classes = get_aki_label_names()
     void_classes = ["void", "static"]
 
@@ -33,7 +33,6 @@ def main():
     # Create data module
     datamodule = SemanticImageSegmentationDataModule(scenario=scenario,
                                                      order_by=order_by,
-                                                     limit=limit,
                                                      datasets=datasets,
                                                      classes=classes,
                                                      void=void_classes)
@@ -49,8 +48,18 @@ def main():
     # Create model
     segmentation_model = SemanticImageSegmentationModel(len(valid_classes), train_epochs=max_epochs).to(memory_format=torch.channels_last)
 
+    checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/semantic_image_segmentation/",
+                                          filename='{epoch:02d}-{val_loss:.5f}',
+                                          monitor="validation/loss",
+                                          save_top_k=-1,
+                                          every_n_epochs=1)
+
+
     # Create trainer and start training
-    trainer = Trainer(max_epochs=max_epochs, logger = wandb_logger, enable_progress_bar=False)
+    trainer = Trainer(max_epochs=max_epochs,
+                      callbacks=[checkpoint_callback],
+                      logger = wandb_logger,
+                      enable_progress_bar=False)
     log.info(f"Starting training")
     trainer.fit(segmentation_model, datamodule)
     trainer.validate(segmentation_model, datamodule)

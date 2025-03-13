@@ -4,7 +4,7 @@ import torch
 from typing import Any, Callable, List, Optional
 from torch.utils.data import DataLoader
 from lightning.pytorch import LightningDataModule
-from data_modules.data_module_utils import FilterVoidLabels, runs_per_epoch
+from data_modules.data_module_utils import FilterVoidLabels, runs_per_epoch, elems_in_dataloader, get_label_distribution
 
 from akiset import AKIDataset
 
@@ -19,11 +19,9 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
         scenario: str = "all",
         datasets: List[str] = ["all"],
         batch_size: int = 32,
-        image_size: int = 1024,
-        num_workers: int = 10,
+        num_workers: int = 1,
         itersize: int = 1000,
         order_by: str = None,
-        limit: int = None,
         mean: Optional[tuple] = (0.0, 0.0, 0.0),
         std: Optional[tuple] = (1.0, 1.0, 1.0),
         classes: Optional[List[str]] = None,
@@ -38,10 +36,11 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
         self.scenario = scenario
         self.datasets = datasets
         self.order_by = order_by
-        self.limit = limit
+        self.train_limit = 10_000
+        self.val_limit = 10_000
+        self.test_limit = 10_000
 
         self.batch_size = batch_size
-        self.image_size = image_size
         self.num_workers = num_workers
         self.itersize = itersize
         self.mean = torch.as_tensor(mean)
@@ -68,7 +67,8 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
         return self._ignore_index
 
     def setup(self, stage=None):
-        data = {"camera": ["image"], "camera_segmentation": ["camera_segmentation"]}
+        log.info(f"Running setup function")
+        data = {"camera": ["image"], "camera_segmentation": ["camera_segmentation"], "weather": ["weather"]}
 
         self.train_ds = AKIDataset(
             data,
@@ -77,7 +77,7 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             datasets=self.datasets,
             itersize=self.itersize,
             orderby=self.order_by,
-            limit=self.limit,
+            limit=self.train_limit,
             dbtype=self.dbtype,
             transforms=self._transforms(),
             shuffle=True
@@ -89,6 +89,7 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             scenario=self.scenario,
             datasets=self.datasets,
             itersize=self.itersize,
+            limit=self.val_limit,
             dbtype=self.dbtype,
             transforms=self._transforms()
         )
@@ -99,15 +100,25 @@ class SemanticImageSegmentationDataModule(LightningDataModule):
             scenario=self.scenario,
             datasets=self.datasets,
             itersize=self.itersize,
+            limit=self.test_limit,
             dbtype=self.dbtype,
             transforms=self._transforms()
         )
 
-        log.info(f"Train dataloader contains {self.train_ds.count} elements. It yields {runs_per_epoch(self.train_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
-        #log.info(f"Validation dataloader contains {self.val_ds.count} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
-        #log.info(f"Test dataloader contains {self.test_ds.count} elements. It yields {runs_per_epoch(self.test_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Datasets created")
 
+        train_ds_amt_sunny_imgs, train_ds_amt_rainy_imgs = get_label_distribution(self.train_ds, 2)
+        log.info(f"Data distribution train_ds obtained")
+        val_ds_amt_sunny_imgs, val_ds_amt_rainy_imgs = get_label_distribution(self.val_ds, 2)
+        log.info(f"Data distribution val_ds obtained")
 
+        test_ds_amt_sunny_imgs, test_ds_amt_rainy_imgs = get_label_distribution(self.test_ds, 2)
+
+        log.info(f"Train dataloader contains {train_ds_amt_sunny_imgs} sunny images, {train_ds_amt_rainy_imgs} rainy images, {elems_in_dataloader(self.train_ds.count, self.train_limit)} total elements and yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} batches per epoch.")
+        log.info(f"Validation dataloader contains {val_ds_amt_sunny_imgs} sunny images, {val_ds_amt_rainy_imgs} rainy images, {elems_in_dataloader(self.val_ds.count, self.val_limit)} total elements and yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} batches per epoch.")
+        log.info(f"Test dataloader contains {test_ds_amt_sunny_imgs} sunny images, {test_ds_amt_rainy_imgs} rainy images, {elems_in_dataloader(self.test_ds.count, self.test_limit)} total elements and yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.test_limit)} batches per epoch.")
+
+        
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.train_ds,

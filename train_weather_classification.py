@@ -1,7 +1,7 @@
 import torch
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+import lightning as L
+from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
 from models.weather_classifier import WeatherClassifier
 from data_modules.weather_classification_datamodule import WeatherClassificationDataModule
 
@@ -12,7 +12,7 @@ from utils.misc import MyPrintingCallback
 logging.basicConfig(level="INFO",  format="[%(levelname)s] - %(filename)s:%(lineno)s - %(message)s", datefmt="[%X]")
 log = logging.getLogger("my_logger")
 
-torch.set_float32_matmul_precision("high")
+torch.set_float32_matmul_precision("medium")
 
 def train_weather_classifier():
     # Define params
@@ -20,7 +20,6 @@ def train_weather_classifier():
     datasets = ["waymo"]
     db_connection = "psycopg@ants" # or "psycopg@aki"
     order_by = "weather"
-    limit = 10000
     batch_size = 32
     num_workers = 1
     shuffle=True
@@ -43,8 +42,7 @@ def train_weather_classifier():
                                                   batch_size=batch_size,
                                                   num_workers=num_workers,
                                                   order_by=order_by,
-                                                  shuffle=shuffle,
-                                                  limit=limit)
+                                                  shuffle=shuffle)
     data_module.setup()
     
     train_ds_size = data_module.train_ds.count
@@ -64,7 +62,7 @@ def train_weather_classifier():
 
 
     # Run training
-    trainer = pl.Trainer(max_epochs=max_epochs,
+    trainer = L.Trainer(max_epochs=max_epochs,
                          callbacks=[MyPrintingCallback(), checkpoint_callback],
                          logger=wandb_logger,
                          enable_progress_bar=False)

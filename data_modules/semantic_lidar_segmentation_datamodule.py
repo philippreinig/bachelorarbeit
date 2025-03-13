@@ -18,10 +18,11 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
         scenario: str = "all",
         datasets: List[str] = ["all"],
         batch_size: int = 32,
-        num_workers: int = 10,
+        num_workers: int = 16,
         itersize: int = 1000,
         order_by: str = None,
-        limit: int = None,
+        train_limit: int = None,
+        val_limit: int = None,
         downsampled_pointcloud_size: Optional[int] = None,
         classes: Optional[List[str]] = None,
         void: Optional[List[str]] = None,
@@ -35,7 +36,8 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
         self.scenario = scenario
         self.datasets = datasets
         self.order_by = order_by
-        self.limit = limit
+        self.train_limit = train_limit
+        self.val_limit = val_limit
 
         self.downsampled_pointcloud_size = downsampled_pointcloud_size
 
@@ -57,7 +59,8 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
         log.info(f"Batch size: {self.batch_size}")
         log.info(f"Num workers: {self.num_workers}")
         log.info(f"Oder by: {self.order_by}")
-        log.info(f"Limit: {self.limit}")
+        log.info(f"Train limit: {self.train_limit}")
+        log.info(f"Val limit: {self.val_limit}")
         log.info(f"Datasets: {self.datasets}")
 
     @property
@@ -88,7 +91,7 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
             datasets=self.datasets,
             itersize=self.itersize,
             orderby=self.order_by,
-            limit=self.limit,
+            limit=self.train_limit,
             dbtype=self.dbtype,
             shuffle=True
         )
@@ -98,6 +101,7 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
             splits=["validation"],
             scenario=self.scenario,
             datasets=self.datasets,
+            limit=self.val_limit,
             itersize=self.itersize,
             dbtype=self.dbtype,
         )
@@ -111,8 +115,8 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
             dbtype=self.dbtype,
         )
 
-        log.info(f"Train dataloader contains {self.train_ds.count} elements. It yields {runs_per_epoch(self.train_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
-        log.info(f"Validation dataloader contains {self.val_ds.count} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Train dataloader contains {self.train_ds.count} elements. It yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Validation dataloader contains {self.val_ds.count} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} runs per epoch (batch size is {self.batch_size})")
         log.info(f"Test dataloader contains {self.test_ds.count} elements. It yields {runs_per_epoch(self.test_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
 
 
@@ -134,9 +138,8 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader:
-        """Same as *val* set, because test annotations are not public"""
         return DataLoader(
-            self.val_ds,
+            self.test_ds,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=self._prepare_batch

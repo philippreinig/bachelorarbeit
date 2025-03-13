@@ -7,7 +7,7 @@ import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from models.semantic_lidar_segmentation import PointNet2
-from data_modules.semantic_lidar_segmentation_datamodule import SemanticLidarSegmentationDataModule
+from data_modules.semantic_lidar_segmentation_datamodule_v2 import SemanticLidarSegmentationDataModule
 from utils.aki_labels import aki_labels
 
 from utils.aki_labels import get_aki_label_names
@@ -33,8 +33,8 @@ def main():
     downsampled_pointcloud_size = None
     classes = get_aki_label_names()
     void_classes = ["void", "static"]
-    train_limit = 1000
-    val_limit = 1000
+    train_limit = 30
+    val_limit = 50
 
     # Model
 
@@ -60,7 +60,7 @@ def main():
     
     log.info(f"There are {amt_valid_classes} valid classes of the total {len(get_aki_label_names())} classes: {valid_classes}")
 
-    checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/semantic_lidar_segmentation/",
+    checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/semantic_lidar_segmentation/",   
                                           filename='{epoch:02d}-{val_loss:.5f}',
                                           monitor="validation/loss",
                                           save_top_k=-1,
@@ -68,7 +68,7 @@ def main():
 
     # Create model
     segmentation_model = PointNet2(len(aki_labels), train_epochs=max_epochs)
-    ti.summary(segmentation_model, (batch_size, downsampled_pointcloud_size if downsampled_pointcloud_size else 143_000, 3))
+    #ti.summary(segmentation_model, (batch_size, downsampled_pointcloud_size if downsampled_pointcloud_size else 143_000, 3))
     
     # Create trainer and start training
     trainer = L.Trainer(max_epochs=max_epochs,
@@ -76,10 +76,11 @@ def main():
                         callbacks=[checkpoint_callback],
                         precision="16-mixed",
                         enable_progress_bar=False,
-                        accelerator="gpu",
+                        accelerator="cpu",
                         devices=1,
                         num_nodes=1,
                         strategy="ddp")
+    
     log.info(f"Lightning trainer uses {trainer.num_devices} gpus")
 
     trainer.fit(segmentation_model, datamodule)

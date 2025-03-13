@@ -1,7 +1,7 @@
 import torch
 import torchvision.models as models
 from torch import nn
-import pytorch_lightning as pl
+import lightning as L
 import torchmetrics as tm
 
 import logging
@@ -9,12 +9,11 @@ from rich.logging import RichHandler
 log = logging.getLogger("rich")
 
 
-class WeatherClassifier(pl.LightningModule):
+class WeatherClassifier(L.LightningModule):
     def __init__(self):
         super(WeatherClassifier, self).__init__()
 
         self.model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-        #self.model = models.resnet18()
         
         num_features = self.model.fc.in_features
         log.info(f"fc in features are: {num_features}")
@@ -40,7 +39,7 @@ class WeatherClassifier(pl.LightningModule):
 
         preds = torch.argmax(logits, dim=1) 
 
-        self.train_acc(preds, labels)
+        train_acc_step = self.train_acc(preds, labels)
         
         self.log("train_acc", self.train_acc, on_step=True)
         self.log("train_loss", loss, on_step=True)
@@ -55,6 +54,8 @@ class WeatherClassifier(pl.LightningModule):
         self.log("debug/train/rain_preds", rain_preds.float())
         self.log("debug/train/sunny_lbls", sunny_lbls.float())
         self.log("debug/train/sunny_preds", sunny_preds.float())
+
+        log.info(f"Loss and accuracy after training step {batch_idx}: {loss}, {train_acc_step}")
 
         return loss
 

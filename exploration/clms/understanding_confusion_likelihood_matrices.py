@@ -31,7 +31,8 @@ def plot_confusion_matrix(matrix, title, cmap='Blues'):
     plt.title(title)
     plt.xlabel('True Class')
     plt.ylabel('Predicted Class')
-    plt.show()
+    plt.savefig(f"example_clm.png")
+    plt.close() 
 
 n = 10
 elements = 1000

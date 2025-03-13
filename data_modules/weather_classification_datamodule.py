@@ -6,15 +6,15 @@ import torch
 from torch.utils.data import DataLoader
 
 from torchvision.transforms import v2 as transform_lib
-import pytorch_lightning as pl
 
-from pytorch_lightning import LightningDataModule
+from lightning.pytorch import LightningDataModule
 
 import logging
 log = logging.getLogger("my_logger")
 
 from utils.data_preparation import weather_condition2numeric_v2
 from data_modules.data_module_utils import runs_per_epoch, elems_in_dataloader, get_label_distribution
+
 
 class WeatherClassificationDataModule(LightningDataModule):
     def __init__(
@@ -23,7 +23,6 @@ class WeatherClassificationDataModule(LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 1,
         order_by: str = None,
-        limit: int = 2_000_000,
         shuffle = False,
         dbtype = "psycopg@ants"
     ) -> None:
@@ -34,7 +33,6 @@ class WeatherClassificationDataModule(LightningDataModule):
         super().__init__()
         self.datasets = datasets
         self.order_by = order_by
-        self.limit = limit
         self.shuffle = shuffle
 
         self.batch_size = batch_size
@@ -46,9 +44,10 @@ class WeatherClassificationDataModule(LightningDataModule):
         self.val_ds = None
         self.test_ds = None
 
-        self.train_limit = self.limit
-        self.val_limit = 2000
-        self.test_limit = 1400
+        self.train_limit = 8520
+        self.val_limit = 2120
+        self.test_limit = 1290
+
 
         self.sunny_mean = torch.tensor([0.3291, 0.3426, 0.3622])
         self.sunny_std = torch.tensor([0.1929, 0.2077, 0.2460])
@@ -57,7 +56,6 @@ class WeatherClassificationDataModule(LightningDataModule):
         self.normalize_sunny = transform_lib.Normalize(mean=self.sunny_mean, std=self.sunny_std)
         self.normalize_rainy = transform_lib.Normalize(mean=self.rainy_mean, std=self.rainy_std)
 
-        log.info(f"Limit: {self.limit}")
         log.info(f"Datasets: {self.datasets}")
         log.info(f"Batch size: {self.batch_size}")
         log.info(f"Workers: {self.num_workers}")
@@ -72,7 +70,7 @@ class WeatherClassificationDataModule(LightningDataModule):
     @property
     def num_classes(self) -> int:
         """Return: number of classes"""
-        return 2
+        return len(self.classes)
 
 
     def setup(self, stage=None):
@@ -109,13 +107,13 @@ class WeatherClassificationDataModule(LightningDataModule):
             shuffle=self.shuffle
         )
 
-        train_ds_sunny_imgs, train_ds_rainy_imgs = get_label_distribution(self.train_ds)
-        val_ds_sunny_imgs, val_ds_rainy_imgs = get_label_distribution(self.val_ds)
-        test_ds_sunny_imgs, test_ds_rainy_imgs = get_label_distribution(self.test_ds)
+        train_ds_amt_sunny_imgs, train_ds_amt_rainy_imgs = get_label_distribution(self.train_ds, 1)
+        val_ds_amt_sunny_imgs, val_ds_amt_rainy_imgs = get_label_distribution(self.val_ds, 1)
+        test_ds_amt_sunny_imgs, test_ds_amt_rainy_imgs = get_label_distribution(self.test_ds, 1)
 
-        log.info(f"Train dataloader contains {train_ds_sunny_imgs} sunny images, {train_ds_rainy_imgs} rainy images, {elems_in_dataloader(self.train_ds.count, self.limit)} total elements and yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.limit)} batches per epoch.")
-        log.info(f"Validation dataloader contains {val_ds_sunny_imgs} sunny images, {val_ds_rainy_imgs} rainy images, {elems_in_dataloader(self.val_ds.count, self.limit)} total elements and yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.limit)} batches per epoch.")
-        log.info(f"Test dataloader contains {test_ds_sunny_imgs} sunny images, {test_ds_rainy_imgs} rainy images, {elems_in_dataloader(self.test_ds.count, self.limit)} total elements and yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.limit)} batches per epoch.")
+        log.info(f"Train dataloader contains {train_ds_amt_sunny_imgs} sunny images, {train_ds_amt_rainy_imgs} rainy images, {elems_in_dataloader(self.train_ds.count, self.train_limit)} total elements and yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} batches per epoch.")
+        log.info(f"Validation dataloader contains {val_ds_amt_sunny_imgs} sunny images, {val_ds_amt_rainy_imgs} rainy images, {elems_in_dataloader(self.val_ds.count, self.val_limit)} total elements and yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} batches per epoch.")
+        log.info(f"Test dataloader contains {test_ds_amt_sunny_imgs} sunny images, {test_ds_amt_rainy_imgs} rainy images, {elems_in_dataloader(self.test_ds.count, self.test_limit)} total elements and yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.test_limit)} batches per epoch.")
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(

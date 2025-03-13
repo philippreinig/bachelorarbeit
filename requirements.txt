@@ -1,9 +1,8 @@
-torch
+torch==2.5.1 # Torch geometric isn't compatible with most recent torch 2.6.0 release
 numpy
 pandas
 matplotlib
 seaborn
-networkx
 rich
 pillow
 psycopg
@@ -17,7 +16,7 @@ torch_geometric
 wheel
 torchinfo
 
-# This somehow don't install with the cuda libraries when installed from this requirements.txt
+# Pip doesn't install the cuda libraries when installed from this requirements.txt for some reason
 # Use the following command to install them: pip install --force-reinstall --no-cache-dir torch-cluster torch-sparse torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu124.html 
 #torch-cluster --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
 #torch-sparse --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html

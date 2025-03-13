@@ -46,15 +46,8 @@ class FeaturePropagation(L.LightningModule):
         self.k = k
 
     def forward(self, x, pos, new_pos, batch, new_batch):
-        # Ensure batch sizes match point sizes
-        assert pos.size(0) == batch.size(0), f"pos size {pos.size(0)} != batch size {batch.size(0)}"
-        assert new_pos.size(0) == new_batch.size(0), f"new_pos size {new_pos.size(0)} != new_batch size {new_batch.size(0)}"
-
         # Interpolate features to match new_pos size
         interpolated = knn_interpolate(x, pos, new_pos, batch, new_batch, k=self.k)
-
-        # Ensure batch size matches interpolated size
-        assert interpolated.size(0) == new_batch.size(0), f"Interpolated size {interpolated.size(0)} != new_batch size {new_batch.size(0)}"
 
         # Update batch size to match new_pos
         return self.mlp(interpolated), new_pos, new_batch
@@ -135,15 +128,14 @@ class PointNet2(L.LightningModule):
         return loss, logits, labels 
 
     def training_step(self, batch, batch_idx):
-        log.info(f"Training step {batch_idx}")
         loss, logits, labels = self.step(batch)
         
         train_acc_step = self.train_acc(logits, labels)
 
         self.log("train/loss", loss)
-        self.log("train/accuracy", self.train_acc)
+        self.log("train/accuracy", train_acc_step)
 
-        log.info(f"Loss and accuracy after training step {batch_idx}: {loss}, {train_acc_step}")
+        #log.info(f"Loss and accuracy after training step {batch_idx}: {loss}, {train_acc_step}")
 
         return dict(loss=loss, logits=logits)
 
@@ -152,10 +144,10 @@ class PointNet2(L.LightningModule):
 
         val_acc = self.val_acc(logits, labels)
 
-        self.log("validation/loss", loss)
-        self.log("validation/accuracy", self.val_acc)
+        self.log("validation/loss", loss, on_epoch=True, sync_dist=True)
+        self.log("validation/accuracy", val_acc, on_epoch=True, sync_dist=True)
 
-        log.info(f"Validation loss and accuracy after step {batch_idx}: {loss}, {val_acc}")
+        #log.info(f"Validation loss and accuracy after step {batch_idx}: {loss}, {val_acc}")
         
         return dict(loss=loss, logits=logits)
 
@@ -164,8 +156,8 @@ class PointNet2(L.LightningModule):
 
         self.test_acc(logits, labels)
         
-        self.log("test/loss", loss, on_step=False, on_epoch=True)
-        self.log("test/accuracy", self.test_acc)
+        self.log("test/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("test/accuracy", self.test_acc, on_step=False, on_epoch=True, sync_dist=True)
 
         return dict(loss=loss, logits=logits)
 

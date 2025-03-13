@@ -14,8 +14,10 @@ from rich.progress import track
 from akiset import AKIDataset
 from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
 from data_modules.weather_classification_datamodule import WeatherClassificationDataModule
+from data_modules.semantic_lidar_segmentation_datamodule_v2 import SemanticLidarSegmentationDataModule
 from utils.data_preparation import prepare_batch, divide_batch_of_tensors
 from utils.misc import add_segmentation_mask_to_img
+from utils.aki_labels import get_aki_label_names
 
 log = logging.getLogger("rich")
 plt.ion()
@@ -42,7 +44,7 @@ def overlay_mask_and_export_img(img, label, colors, export_dir, contains_masked_
     img_with_mask = tv.utils.draw_segmentation_masks(img, mask_one_hot, colors=colors, alpha=0.5)
 
     # Plot images
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
     axes[0].imshow(img.permute(1, 2, 0))  # Convert from C, H, W to H, W, C
     axes[0].set_title("Original Image")
     axes[0].axis("off")
@@ -51,9 +53,9 @@ def overlay_mask_and_export_img(img, label, colors, export_dir, contains_masked_
     axes[1].set_title("Segmentation Mask")
     axes[1].axis("off")
 
-    axes[2].imshow(img_with_mask.permute(1, 2, 0))  # Convert from C, H, W to H, W, C
-    axes[2].set_title("Overlay")
-    axes[2].axis("off")
+    #axes[2].imshow(img_with_mask.permute(1, 2, 0))  # Convert from C, H, W to H, W, C
+    #axes[2].set_title("Overlay")
+    #axes[2].axis("off")
 
     plt.tight_layout()
     plt.savefig(os.path.join(export_dir, f"{uuid.uuid4()}.png"))
@@ -261,6 +263,38 @@ def calc_waymo_rainy_vs_sunny_image_stats():
     print(f"Sunny images standard deviation per channel: {sunny_std}")
     print(f"Rainy images mean per channel: {rainy_mean}")
     print(f"Rainy images standard deviation per channel: {rainy_std}")
+
+    return sunny_mean, sunny_std, rainy_mean, rainy_std
+
+def explore_point_cloud_img_projection_datamodule():
+    scenario = "all"
+    datasets = ["waymo"]
+    order_by = "weather"
+    batch_size = 1
+    downsampled_pointcloud_size = None
+    classes = get_aki_label_names()
+    void_classes = ["void", "static"]
+    train_limit = 30
+    val_limit = 50
+
+    # Create data module
+    proj_dm = SemanticLidarSegmentationDataModule(scenario=scenario,
+                                                     order_by=order_by,
+                                                     batch_size=batch_size,
+                                                     downsampled_pointcloud_size=downsampled_pointcloud_size,
+                                                     datasets=datasets,
+                                                     classes=classes,
+                                                     void=void_classes,
+                                                     train_limit=train_limit,
+                                                     val_limit=val_limit)
+
+    proj_dm.setup()
+
+    for elem in proj_dm.train_dataloader():
+        points, labels = elem
+
+    
+
 
 """
 def explore_imgs_in_different_weather_conditions():

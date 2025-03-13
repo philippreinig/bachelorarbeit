@@ -4,8 +4,8 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=philipp.reinig@gmail.com
 #SBATCH --gpus=h100:1
-#SBATCH --cpus-per-gpu=64
-#SBATCH --mem=150G
+#SBATCH --cpus-per-gpu=32
+#SBATCH --mem=100G
 #SBATCH --output=../logs/slurm/%x-%j.out
 
 cd ~/development/bachelorarbeit/

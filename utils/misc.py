@@ -1,8 +1,10 @@
 import torch
 import logging
 
-import pytorch_lightning as pl
+import lightning as L
 import torchvision as tv
+
+from lightning.pytorch.callbacks import Callback
 
 from utils.aki_labels import get_aki_label_colors
 
@@ -16,8 +18,8 @@ def add_segmentation_mask_to_img(img: torch.Tensor, label: torch.Tensor) -> torc
     return img_with_segmentation_mask
 
 
-class MyPrintingCallback(pl.Callback):
-    def on_train_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+class MyPrintingCallback(L.Callback):
+    def on_train_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         log.info("Starting training")
 
     def on_train_epoch_end(self, trainer, pl_module):
@@ -36,5 +38,5 @@ class MyPrintingCallback(pl.Callback):
 
         log.info(f"Epoch {trainer.current_epoch} - Validation Loss: {val_loss}, Validation Acc: {val_acc}")
 
-    def on_train_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_train_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         log.info("Training done")
