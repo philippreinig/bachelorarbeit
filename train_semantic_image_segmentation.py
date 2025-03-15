@@ -24,8 +24,9 @@ def main():
     order_by = "weather"
     classes = get_aki_label_names()
     void_classes = ["void", "static"]
-
-    # Model
+    train_limit = 7_000
+    val_limit = 2_000
+    test_limit = 1_000
 
     # Training
     max_epochs = 100
@@ -35,7 +36,10 @@ def main():
                                                      order_by=order_by,
                                                      datasets=datasets,
                                                      classes=classes,
-                                                     void=void_classes)
+                                                     void=void_classes,
+                                                     train_limit=train_limit,
+                                                     val_limit=val_limit,
+                                                     test_limit=test_limit)
     valid_classes = datamodule.classes
 
     log.info(f"Length of aki_label_names: {len(get_aki_label_names())}")

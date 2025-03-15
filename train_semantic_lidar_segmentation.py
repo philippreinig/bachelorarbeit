@@ -33,8 +33,9 @@ def main():
     downsampled_pointcloud_size = None
     classes = get_aki_label_names()
     void_classes = ["void", "static"]
-    train_limit = 1000
-    val_limit = 1000
+    train_limit = 2_000
+    val_limit = 1_000
+    test_limit = 1_000
 
     # Model
 
@@ -53,7 +54,8 @@ def main():
                                                      classes=classes,
                                                      void=void_classes,
                                                      train_limit=train_limit,
-                                                     val_limit=val_limit)
+                                                     val_limit=val_limit,
+                                                     test_limit=test_limit)
 
     valid_classes = datamodule.classes
     amt_valid_classes = len(valid_classes)

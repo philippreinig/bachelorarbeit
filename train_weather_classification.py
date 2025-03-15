@@ -63,7 +63,7 @@ def train_weather_classifier():
 
     # Run training
     trainer = L.Trainer(max_epochs=max_epochs,
-                         callbacks=[MyPrintingCallback(), checkpoint_callback],
+                         callbacks=[MyPrintingCallback()], #checkpoint_callback],
                          logger=wandb_logger,
                          enable_progress_bar=False)
 
