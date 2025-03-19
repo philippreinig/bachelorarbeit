@@ -132,10 +132,10 @@ class PointNet2(L.LightningModule):
         
         train_acc_step = self.train_acc(logits, labels)
 
-        self.log("train/loss", loss)
-        self.log("train/accuracy", train_acc_step)
+        self.log("train_loss", loss)
+        self.log("train_accuracy", train_acc_step)
 
-        log.info(f"Train loss and accuracy after step {batch_idx}: {loss}, {train_acc_step}")
+        #log.info(f"Train loss and accuracy after step {batch_idx}: {loss}, {train_acc_step}")
 
         return dict(loss=loss, logits=logits)
 
@@ -144,10 +144,8 @@ class PointNet2(L.LightningModule):
 
         val_acc = self.val_acc(logits, labels)
 
-        self.log("validation/loss", loss, on_epoch=True, sync_dist=True)
-        self.log("validation/accuracy", val_acc, on_epoch=True, sync_dist=True)
-
-        log.info(f"Validation loss and accuracy after step {batch_idx}: {loss}, {val_acc}")
+        self.log("val_loss", loss, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val_accuracy", val_acc, on_epoch=True, on_step=False, sync_dist=True)
         
         return dict(loss=loss, logits=logits)
 
@@ -156,8 +154,8 @@ class PointNet2(L.LightningModule):
 
         self.test_acc(logits, labels)
         
-        self.log("test/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
-        self.log("test/accuracy", self.test_acc, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("test_loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("test_accuracy", self.test_acc, on_step=False, on_epoch=True, sync_dist=True)
 
         return dict(loss=loss, logits=logits)
 

@@ -8,7 +8,7 @@ from exploration.explore_data import explore_aki_dataset, \
                                      explore_waymo_rain_images, \
                                      waymo_sunny_vs_rainy_images, \
                                      calc_waymo_rainy_vs_sunny_image_stats, \
-                                     explore_point_cloud_img_projection_datamodule
+                                     explore_unified_datamodule
 from akiset import AKIDataset
 from utils.aki_labels import get_aki_label_names, get_aki_label_colors_rgb
 from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
@@ -62,7 +62,7 @@ def main():
     #calc_waymo_rainy_vs_sunny_image_stats()
 
     #8) Explore point cloud img projection datamodule
-    explore_point_cloud_img_projection_datamodule()
+    explore_unified_datamodule()
 
 
 if __name__ == "__main__":

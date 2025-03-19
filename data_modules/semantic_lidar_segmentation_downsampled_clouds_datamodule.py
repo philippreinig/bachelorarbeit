@@ -6,7 +6,7 @@ import lightning as L
 
 from typing import List, Optional
 from torch.utils.data import DataLoader
-from data_modules.data_module_utils import runs_per_epoch, get_label_distribution, elems_in_dataloader
+from data_modules.data_module_utils import runs_per_epoch, get_label_distribution, elems_in_dataset
 
 from akiset import AKIDataset
 
@@ -31,6 +31,7 @@ class SemanticLidarSegmentationDownsampledCloudsDataModule(L.LightningDataModule
         classes: Optional[List[str]] = None,
         void: Optional[List[str]] = None,
         ignore_index: Optional[int] = 255,
+        log_distributions=False,
         dbtype: str = "psycopg@ants"
     ) -> None:
         super().__init__()
@@ -64,6 +65,8 @@ class SemanticLidarSegmentationDownsampledCloudsDataModule(L.LightningDataModule
 
         self.valid_idx = [classes.index(c) for c in self._valid_classes]
         self.void_idx = [classes.index(c) for c in void]
+
+        self.log_distributions = log_distributions
 
         log.info(f"Valid indxs: {self.valid_idx}")
         log.info(f"Void indxs: {self.void_idx}")
@@ -123,7 +126,7 @@ class SemanticLidarSegmentationDownsampledCloudsDataModule(L.LightningDataModule
             scenario=self.scenario,
             datasets=self.datasets,
             limit=self.val_limit,
-            dbtype=self.dbtype,
+            dbtype=self.dbtype
         )
 
         self.test_ds = AKIDataset(
@@ -136,15 +139,17 @@ class SemanticLidarSegmentationDownsampledCloudsDataModule(L.LightningDataModule
             dbtype=self.dbtype,
         )
 
-        train_ds_amt_sunny_imgs, train_ds_amt_rainy_imgs = get_label_distribution(self.train_ds, 2)
-        log.info(f"Train distribution obtained")
-        val_ds_amt_sunny_imgs, val_ds_amt_rainy_imgs = get_label_distribution(self.val_ds, 2)
-        log.info(f"Validation distribution obtained")
-        test_ds_amt_sunny_imgs, test_ds_amt_rainy_imgs = get_label_distribution(self.test_ds, 2)
-        log.info(f"Test distribution obtained")
-        log.info(f"Train dataloader contains {train_ds_amt_sunny_imgs} point clouds in sunny situations, {train_ds_amt_rainy_imgs} point clouds in rainy situations, {elems_in_dataloader(self.train_ds.count, self.train_limit)} total elements and yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} batches per epoch.")
-        log.info(f"Validation dataloader contains {val_ds_amt_sunny_imgs} point clouds in sunny situations, {val_ds_amt_rainy_imgs} point clouds in rainy situations, {elems_in_dataloader(self.val_ds.count, self.val_limit)} total elements and yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} batches per epoch.")
-        log.info(f"Test dataloader contains {test_ds_amt_sunny_imgs} point clouds in sunny situations, {test_ds_amt_rainy_imgs} point clouds in rainy situations, {elems_in_dataloader(self.test_ds.count, self.test_limit)} total elements and yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.test_limit)} batches per epoch.")
+        if self.log_distributions:
+            train_ds_amt_sunny_imgs, train_ds_amt_rainy_imgs = get_label_distribution(self.train_ds, 2)
+            val_ds_amt_sunny_imgs, val_ds_amt_rainy_imgs = get_label_distribution(self.val_ds, 2)
+            test_ds_amt_sunny_imgs, test_ds_amt_rainy_imgs = get_label_distribution(self.test_ds, 2)
+            log.info(f"Train dataloader contains {train_ds_amt_sunny_imgs} point clouds in sunny situations, {train_ds_amt_rainy_imgs} point clouds in rainy situations, {elems_in_dataset(self.train_ds.count, self.train_limit)} total elements and yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} batches per epoch.")
+            log.info(f"Validation dataloader contains {val_ds_amt_sunny_imgs} point clouds in sunny situations, {val_ds_amt_rainy_imgs} point clouds in rainy situations, {elems_in_dataset(self.val_ds.count, self.val_limit)} total elements and yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} batches per epoch.")
+            log.info(f"Test dataloader contains {test_ds_amt_sunny_imgs} point clouds in sunny situations, {test_ds_amt_rainy_imgs} point clouds in rainy situations, {elems_in_dataset(self.test_ds.count, self.test_limit)} total elements and yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.test_limit)} batches per epoch.")
+        else:
+            log.info(f"Train dataloader contains {elems_in_dataset(self.train_ds.count, self.train_limit)} elements and yields {runs_per_epoch(self.train_ds.count, self.train_batch_size, self.train_limit)} batches per epoch.")
+            log.info(f"Validation dataloader contains {elems_in_dataset(self.val_ds.count, self.val_limit)} elements and yields {runs_per_epoch(self.val_ds.count, self.val_batch_size, self.val_limit)} batches per epoch.")
+            log.info(f"Test dataloader contains {elems_in_dataset(self.test_ds.count, self.test_limit)} elements and yields {runs_per_epoch(self.test_ds.count, self.val_batch_size, self.test_limit)} batches per epoch.")
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -178,20 +183,12 @@ class SemanticLidarSegmentationDownsampledCloudsDataModule(L.LightningDataModule
             padded_labels = []
 
             for pc, lbl in zip(pcs, lbls):
-                # Normalize to unit cube [0, 1]
+                #N Normalize to unit cube
                 min_coords = pc.min(dim=0).values
                 max_coords = pc.max(dim=0).values
-                #log.info(f"Before normalization — Min: {min_coords.tolist()}, Max: {max_coords.tolist()}")
-
                 pc = (pc - min_coords) / (max_coords - min_coords).clamp(min=1e-6)
 
-                # Log min-max after normalization
-                #min_coords_after = pc.min(dim=0).values
-                #max_coords_after = pc.max(dim=0).values
-                #log.info(f"After normalization — Min: {min_coords_after.tolist()}, Max: {max_coords_after.tolist()}")
-
-
-
+                # Pad point cloud and labels to largest element of the batch
                 if pc.shape[0] < max_points:
                     pc_padded = torch.cat([pc,
                                            torch.full((max_points - pc.shape[0], pc.shape[1]), pad_value)], dim=0)

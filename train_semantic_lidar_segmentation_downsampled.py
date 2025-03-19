@@ -2,6 +2,7 @@ import torch
 import logging
 import sys
 import uuid
+import os
 
 import torchinfo as ti
 import lightning as L
@@ -34,6 +35,7 @@ def main(slurm_job_id: Optional[int]):
     train_batch_size = 32
     val_batch_size = 3
     downsampled_pointcloud_size = 16000
+    only_use_downsampled_clouds_for_training = True
     classes = get_aki_label_names()
     void_classes = ["void", "static"]
     train_limit = 7_000
@@ -47,10 +49,10 @@ def main(slurm_job_id: Optional[int]):
     set_abstraction_ratio_2 = 0.15
 
     # Training
-    max_epochs = 30
+    max_epochs = 100
 
     # Create loggers
-    wandb_logger = WandbLogger(name=f"ldr_smtc_sgmttn_dwnsmpld-{slurm_job_id if slurm_job_id else uuid.uuid4()}",
+    wandb_logger = WandbLogger(name=f"lid_sem_seg_down-{slurm_job_id if slurm_job_id else uuid.uuid4()}",
                                log_model="all",
                                save_dir="logs/wandb/semantic_lidar_segmentation_downsampled/",
                                project="semantic_lidar_segmentation")
@@ -61,6 +63,7 @@ def main(slurm_job_id: Optional[int]):
                                                                       train_batch_size=train_batch_size,
                                                                       val_batch_size=val_batch_size,
                                                                       downsampled_pointcloud_size=downsampled_pointcloud_size,
+                                                                      only_use_downsampled_clouds_for_training=only_use_downsampled_clouds_for_training,
                                                                       datasets=datasets,
                                                                       classes=classes,
                                                                       void=void_classes,
@@ -72,10 +75,11 @@ def main(slurm_job_id: Optional[int]):
     amt_valid_classes = len(valid_classes)
     
     log.info(f"There are {amt_valid_classes} valid classes of the total {len(get_aki_label_names())} classes: {valid_classes}")
-
+    checkpoint_dir=f"checkpoints/semantic_lidar_segmentation_downsampled/{slurm_job_id}"
+    os.makedirs(checkpoint_dir)
     checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/semantic_lidar_segmentation_downsampled/",
-                                          filename=f"{slurm_job_id}"+'{epoch:02d}-{validation/loss:.5f}',
-                                          monitor="validation/loss",
+                                          filename=f"{slurm_job_id}"+'{epoch:02d}-{val_loss:.5f}',
+                                          monitor="val_loss",
                                           save_top_k=-1,
                                           every_n_epochs=1)
 
@@ -95,7 +99,8 @@ def main(slurm_job_id: Optional[int]):
                         callbacks=[checkpoint_callback],
                         precision="16-mixed",
                         enable_progress_bar=False,
-                        accelerator="cpu",
+                        check_val_every_n_epoch=5,
+                        accelerator="gpu",
                         devices=1,
                         num_nodes=1,
                         strategy="ddp")

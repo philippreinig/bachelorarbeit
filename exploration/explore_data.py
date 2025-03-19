@@ -14,10 +14,12 @@ from rich.progress import track
 from akiset import AKIDataset
 from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
 from data_modules.weather_classification_datamodule import WeatherClassificationDataModule
-from data_modules.semantic_lidar_segmentation_datamodule_v2 import SemanticLidarSegmentationDataModule
+from data_modules.unified_datamodule import UnifiedDataModule
 from utils.data_preparation import prepare_batch, divide_batch_of_tensors
 from utils.misc import add_segmentation_mask_to_img
-from utils.aki_labels import get_aki_label_names
+from utils.aki_labels import get_aki_label_names, get_aki_label_listed_color_map
+from matplotlib.colors import ListedColormap
+
 
 log = logging.getLogger("rich")
 plt.ion()
@@ -266,34 +268,81 @@ def calc_waymo_rainy_vs_sunny_image_stats():
 
     return sunny_mean, sunny_std, rainy_mean, rainy_std
 
-def explore_point_cloud_img_projection_datamodule():
+def explore_unified_datamodule():
     scenario = "all"
     datasets = ["waymo"]
     order_by = "weather"
-    batch_size = 1
-    downsampled_pointcloud_size = None
+    batch_size = 10
+    downsampled_pointcloud_size = 16000
     classes = get_aki_label_names()
     void_classes = ["void", "static"]
     train_limit = 30
     val_limit = 50
+    shuffle=True
 
     # Create data module
-    proj_dm = SemanticLidarSegmentationDataModule(scenario=scenario,
-                                                     order_by=order_by,
-                                                     batch_size=batch_size,
-                                                     downsampled_pointcloud_size=downsampled_pointcloud_size,
-                                                     datasets=datasets,
-                                                     classes=classes,
-                                                     void=void_classes,
-                                                     train_limit=train_limit,
-                                                     val_limit=val_limit)
+    udm = UnifiedDataModule(scenario=scenario,
+                            order_by=order_by,
+                            batch_size=batch_size,
+                            #downsampled_pointcloud_size=downsampled_pointcloud_size,
+                            datasets=datasets,
+                            classes=classes,
+                            void=void_classes,
+                            train_limit=train_limit,
+                            val_limit=val_limit,
+                            shuffle=shuffle)
 
-    proj_dm.setup()
+    udm.setup()
 
-    for elem in proj_dm.train_dataloader():
-        points, labels = elem
-
+    for batch in udm.train_dataloader():
+        images, img_seg_masks, point_clouds_padded, pc_labels_padded, weather_conditions, fusable_pixels_masks = batch 
+        batch_size = images.shape[0]
     
+        for i in range(batch_size):
+            fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+            fig.suptitle(f"Weather: {'Rainy' if weather_conditions[i].item() == 1 else 'Sunny'}", fontsize=16)
+
+            log.info(f"Amount of fusable pixels for element {i}: {fusable_pixels_masks.sum()}")
+
+            # Convert tensors to numpy for plotting
+            image = images[i].permute(1, 2, 0).numpy()  # Convert from CxHxW to HxWxC
+            seg_mask = img_seg_masks[i].numpy()
+
+            # Projected points
+            pc = point_clouds_padded[i].numpy()
+            labels = pc_labels_padded[i].numpy()
+
+            # 1. Plot original image
+            axs[0].imshow(image)
+            axs[0].set_title("Image")
+            axs[0].axis("off")
+
+            # 2. Plot segmentation mask
+            axs[1].imshow(seg_mask, cmap=get_aki_label_listed_color_map())
+            axs[1].set_title("Segmentation Mask")
+            axs[1].axis("off")
+
+            # 3. Plot image with projected points
+            axs[2].imshow(image)
+            axs[2].scatter(pc[:, 3], pc[:, 4], c=labels, cmap=get_aki_label_listed_color_map(), s=1)  # u, v for image space
+            axs[2].set_title("Projected Points with Labels")
+            axs[2].axis("off")
+
+            # 4. Plot fusable pixels mask
+            fusable_pixels_mask = fusable_pixels_masks[i]
+            fusable_pixels_image = np.zeros((fusable_pixels_mask.shape[0], fusable_pixels_mask.shape[1], 4), dtype=np.float32)
+            #fusable_pixels_image[fusable_pixels_mask] = [0, 1, 0, 1]  # Green for True
+            fusable_pixels_image[~fusable_pixels_mask] = [1, 0, 0, 1]  # Red for False
+            true_coords = np.column_stack(np.where(fusable_pixels_mask))
+
+            # Overlay green scatter points where the tensor is True
+            axs[3].scatter(true_coords[:, 1], true_coords[:, 0], color='green', s=2, marker='.')
+            axs[3].imshow(image)
+            axs[3].imshow(fusable_pixels_image, alpha=0.3)
+            axs[3].set_title("Fusable Pixels Mask")
+            axs[3].axis("off")
+
+            plt.savefig(f"imgs/unified_datamodule/{uuid.uuid4()}")
 
 
 """

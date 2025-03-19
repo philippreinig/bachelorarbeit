@@ -46,11 +46,11 @@ class FilterVoidLabels(transform_lib.Transform):
 
         return image, label, weather_condition
 
-def elems_in_dataloader(dataset_size: int, limit: Optional[int] = None) -> int:
+def elems_in_dataset(dataset_size: int, limit: Optional[int] = None) -> int:
     return min(dataset_size, limit) if limit else dataset_size
     
 def runs_per_epoch(dataset_size: int, batch_size: int, limit: Optional[int] = None) -> int:
-    dataloader_size = elems_in_dataloader(dataset_size, limit)
+    dataloader_size = elems_in_dataset(dataset_size, limit)
     if dataloader_size % batch_size == 0:
         return int(dataloader_size / batch_size)
     else:
@@ -123,4 +123,24 @@ def randomly_crop(image: torch.Tensor, segmentation_mask: torch.Tensor, crop_siz
 
     return image, segmentation_mask, i, j, h, w
 
+def weather_condition2numeric(weather_condition: str) -> list:
+    mapping = {
+        "Clear Sky": 0,
+        "Heavy Rain": 1,
+        "Dense Drizzle": 1,
+        "Light Drizzle": 1,
+        "Light Rain": 1,
+        "Mainly Clear": 0,
+        "Moderate Drizzle": 1,
+        "Moderate Rain": 1,
+        "Overcast": 0,
+        "Partly Cloudy": 0,
+        "rain": 1,
+        "sunny": 0
+    }
+
+    if "Snow" in weather_condition:
+        raise ValueError("Can't embed snow!")
+
+    return mapping[weather_condition]
 

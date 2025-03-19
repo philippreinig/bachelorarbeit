@@ -6,6 +6,9 @@ from torch import nn
 from models.model_utils import unpack_feature_pyramid
 import torch.nn.functional as F
 
+import logging
+
+log = logging.getLogger(__name__)
 
 from lightning.pytorch import LightningModule
 
@@ -72,9 +75,7 @@ class SemanticImageSegmentationModel(LightningModule):
         train_epochs: int = 30
     ):
         super().__init__()
-        self.save_hyperparameters(logger=False)
 
-        #self.encoder = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         self.encoder = timm.create_model("resnet18", features_only=True, pretrained=True, output_stride=16)
         pyramid = self.encoder.feature_info.channels()
         self.decoder = LRASPP(pyramid, num_classes, (886,1600))
@@ -135,6 +136,14 @@ class SemanticImageSegmentationModel(LightningModule):
         self.log("test/accuracy", self.test_acc)
 
         return dict(loss=loss, logits=logits)
+    
+    def predict_step(self, batch, batch_idx):
+
+        loss, logits, labels = self.step(batch)
+
+        log.info(f"Amount of elements in batch {batch_idx}: {batch[0].shape[0]}")
+
+        return dict(loss=loss, logits=logits, labels=labels)
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=1e-4, weight_decay=1e-6)

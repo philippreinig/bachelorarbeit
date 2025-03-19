@@ -7,7 +7,7 @@ import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from models.semantic_lidar_segmentation import PointNet2
-from data_modules.semantic_lidar_segmentation_datamodule_v2 import SemanticLidarSegmentationDataModule
+from data_modules.unified_datamodule import UnifiedDataModule
 from utils.aki_labels import aki_labels
 
 from utils.aki_labels import get_aki_label_names
@@ -45,7 +45,7 @@ def main():
     wandb_logger = WandbLogger(log_model="all", save_dir="logs/wandb/semantic_lidar_segmentation/", project="semantic_lidar_segmentation")
 
     # Create data module
-    datamodule = SemanticLidarSegmentationDataModule(scenario=scenario,
+    datamodule = UnifiedDataModule(scenario=scenario,
                                                      order_by=order_by,
                                                      batch_size=batch_size,
                                                      downsampled_pointcloud_size=downsampled_pointcloud_size,

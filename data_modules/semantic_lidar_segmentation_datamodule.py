@@ -6,7 +6,7 @@ import lightning as L
 
 from typing import List, Optional
 from torch.utils.data import DataLoader
-from data_modules.data_module_utils import runs_per_epoch, get_label_distribution, elems_in_dataloader
+from data_modules.data_module_utils import runs_per_epoch, get_label_distribution, elems_in_dataset
 
 from akiset import AKIDataset
 

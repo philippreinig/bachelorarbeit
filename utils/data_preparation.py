@@ -33,11 +33,11 @@ def divide_batch_of_tensors(t: torch.Tensor, rows: int, cols: int) -> torch.Tens
     return new_tensor
 
 def prepare_batch(batch):
-    input_batch = torch.stack([elem0 for elem in batch], 0)
-    label_batch = torch.stack([elem0 for elem in batch], 0)
+    input_batch = torch.stack([elem[0] for elem in batch], 0)
+    label_batch = torch.stack([elem[1] for elem in batch], 0)
     return input_batch, label_batch
 
-def weather_condition2numeric(weather_condition: str) -> list:
+def weather_condition2numeric_old(weather_condition: str) -> list:
     mapping = {
         "Clear Sky": [1, 0],
         "Heavy Rain": [0, 1],
@@ -57,25 +57,3 @@ def weather_condition2numeric(weather_condition: str) -> list:
         raise ValueError("Can't embed snow!")
 
     return mapping[weather_condition]
-
-def weather_condition2numeric_v2(weather_condition: str) -> list:
-    mapping = {
-        "Clear Sky": 0,
-        "Heavy Rain": 1,
-        "Dense Drizzle": 1,
-        "Light Drizzle": 1,
-        "Light Rain": 1,
-        "Mainly Clear": 0,
-        "Moderate Drizzle": 1,
-        "Moderate Rain": 1,
-        "Overcast": 0,
-        "Partly Cloudy": 0,
-        "rain": 1,
-        "sunny": 0
-    }
-
-    if "Snow" in weather_condition:
-        raise ValueError("Can't embed snow!")
-
-    return mapping[weather_condition]
-

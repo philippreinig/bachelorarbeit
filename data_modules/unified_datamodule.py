@@ -5,10 +5,11 @@ import json
 import matplotlib.pyplot as plt
 import lightning as L
 import numpy as np
+import uuid
 
 from typing import List, Optional
 from torch.utils.data import DataLoader
-from data_modules.data_module_utils import runs_per_epoch, randomly_crop
+from data_modules.data_module_utils import runs_per_epoch, randomly_crop, weather_condition2numeric
 from torchvision.transforms.functional import to_pil_image
 
 from akiset import AKIDataset
@@ -17,7 +18,7 @@ from akiset.utils.transform import project_vehicle_to_image_waymo
 log = logging.getLogger("rich")
 
 
-class SemanticLidarSegmentationDataModule(L.LightningDataModule):
+class UnifiedDataModule(L.LightningDataModule):
     def __init__(
         self,
         scenario: str = "all",
@@ -28,12 +29,16 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
         train_limit: int = None,
         val_limit: int = None,
         downsampled_pointcloud_size: Optional[int] = None,
+        shuffle: bool = False,
         classes: Optional[List[str]] = None,
         void: Optional[List[str]] = None,
         ignore_index: Optional[int] = 255,
         dbtype: str = "psycopg@ants"
     ) -> None:
         super().__init__()
+
+        if downsampled_pointcloud_size not in [None, 4000, 8000, 16000]:
+            raise ValueError(f"Invalid downsampled point cloud size. Must be one of: 4000, 8000, 16000, but is: {downsampled_pointcloud_size}")
 
         self.dbtype = dbtype
 
@@ -42,7 +47,7 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
         self.order_by = order_by
         self.train_limit = train_limit
         self.val_limit = val_limit
-
+        self.shuffle = shuffle
         self.downsampled_pointcloud_size = downsampled_pointcloud_size
 
         self.batch_size = batch_size
@@ -56,8 +61,6 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
 
         self.crop_size = (886, 1600)
 
-        self.prepared_elems_counter = 0
-
         log.info(f"Valid indxs: {self.valid_idx}")
         log.info(f"Void indxs: {self.void_idx}")
         log.info(f"Ignore index: {self.ignore_index}")
@@ -65,6 +68,7 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
         log.info(f"Scenario: {self.scenario}")
         log.info(f"Batch size: {self.batch_size}")
         log.info(f"Num workers: {self.num_workers}")
+        log.info(f"Shuffle: {self.shuffle}")
         log.info(f"Order by: {self.order_by}")
         log.info(f"Train limit: {self.train_limit}")
         log.info(f"Val limit: {self.val_limit}")
@@ -85,12 +89,15 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
         return self._ignore_index
 
     def setup(self, stage=None):
+        points_col_name = f"points{f'_downsampled_{self.downsampled_pointcloud_size // 1000}k' if self.downsampled_pointcloud_size else ''}"
         data = {
             "camera": ["image", "camera_id", "camera_parameters", "camera_vehicle_pose"],
             "camera_segmentation": ["camera_segmentation"],
-            "lidar": ["points", "lidar_id", "lidar_parameters", "lidar_vehicle_pose"],
-            "lidar_segmentation": ["lidar_segmentation"]
+            "lidar": [points_col_name, "lidar_id", "lidar_parameters", "lidar_vehicle_pose"],
+            "weather": ["weather"]
         }
+
+        log.info(f"Columns for datasets are: {data}")
 
         self.train_ds = AKIDataset(
             data,
@@ -100,7 +107,7 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
             orderby=self.order_by,
             limit=self.train_limit,
             dbtype=self.dbtype,
-            shuffle=False
+            shuffle=self.shuffle
         )
 
         self.val_ds = AKIDataset(
@@ -110,7 +117,7 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
             datasets=self.datasets,
             limit=self.val_limit,
             dbtype=self.dbtype,
-            shuffle=True
+            shuffle=self.shuffle
         )
 
         self.test_ds = AKIDataset(
@@ -119,12 +126,12 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
             scenario=self.scenario,
             datasets=self.datasets,
             dbtype=self.dbtype,
+            shuffle=self.shuffle
         )
 
         log.info(f"Train dataloader contains {self.train_ds.count} elements. It yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} runs per epoch (batch size is {self.batch_size})")
         log.info(f"Validation dataloader contains {self.val_ds.count} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} runs per epoch (batch size is {self.batch_size})")
         log.info(f"Test dataloader contains {self.test_ds.count} elements. It yields {runs_per_epoch(self.test_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
-
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -153,11 +160,11 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
 
     def _prepare_batch(self, batch) -> tuple[torch.Tensor, torch.Tensor]:
 
-        def pad_batch(pcs_batch: list[torch.Tensor], lbls_batch: list[torch.Tensor], pad_value=0) -> torch.Tensor:
+        def pad_pc_batch(pcs_batch: list[torch.Tensor], lbls_batch: list[torch.Tensor], pad_value=0) -> torch.Tensor:
             for pc, lbls in zip(pcs_batch, lbls_batch):
                 assert pc.shape[0] == lbls.shape[0], f"Amount of points in point cloud doesn't match amount its labeels: {pc.shape[0]} vs. {lbls.shape[0]}"
             
-            max_points = max(pc.shape[0] for pc in pcs_batch)
+            max_points = max(pc.shape[0] for pc in pcs_batch) if len(pcs_batch) > 0 else 0
             padded_point_clouds = []
             padded_labels = []
 
@@ -173,10 +180,14 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
                     padded_point_clouds.append(pc)
                     padded_labels.append(lbls)                    
 
-            return torch.stack(padded_point_clouds), torch.stack(padded_labels)
+            return (torch.stack(padded_point_clouds), torch.stack(padded_labels)) if len(padded_point_clouds) else (torch.empty(0,3), torch.empty(0,3))
 
+        images = []
+        image_seg_masks = []
         point_clouds_to_pad = []
-        labels_to_pad = []
+        pc_labels_to_pad = []
+        weather_conditions = []
+        fusable_pixels_masks = []
 
         for elem in batch:
             image = elem[0]
@@ -188,10 +199,9 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
             lidar_id = elem[6]
             lidar_params = json.loads(elem[7])
             lidar_vehicle_pose = json.loads(elem[8])
-            lidar_segmentation = elem[9]
+            weather_condition = elem[9]
 
             if lidar_id == "waymo_1":
-                #if camera_id == lidar_id:
                 image_heigth = image.shape[1]
                 image_width = image.shape[2]
                 points_projected = project_vehicle_to_image_waymo(lidar_vehicle_pose, camera_params, image_width, image_heigth, point_cloud)
@@ -205,23 +215,35 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
                 points_inside_crop_mask = np.logical_and(points_inside_crop_mask, points_projected[:, 1] >= i)
                 points_inside_crop_mask = np.logical_and(points_inside_crop_mask, points_projected[:, 1] < i+h)
 
-                log.info(f"i: {i}, j: {j}, h: {h}, w: {w}, i+h: {i+h}, j+w: {j+w}")
+                #log.info(f"i: {i}, j: {j}, h: {h}, w: {w}, i+h: {i+h}, j+w: {j+w}")
 
                 # Create a combined tensor where each element consists of 5 values: x,y,z coordinates and u,v pixel coordinates
-                points = torch.hstack((torch.Tensor(point_cloud), torch.Tensor(points_projected[:,:2]).to(torch.int)))
+                points = torch.hstack((torch.tensor(point_cloud), torch.tensor(points_projected[:,:2]).to(torch.int)))
 
 
                 # Only get all points inside the cropped area by applying the mask
-                points_inside_crop = torch.Tensor(points)[torch.BoolTensor(points_inside_crop_mask)]
+                points_inside_crop = torch.tensor(points)[torch.tensor(points_inside_crop_mask, dtype=torch.bool)]
+
+                # Shift projected pixel indices of points to the cropped region
+                projected_points_shifted_to_cropped_region = points_inside_crop.clone()
+                projected_points_shifted_to_cropped_region[:, 3:5] -= torch.tensor([j, i])
                 
-                log.info(f"u_min: {points_inside_crop[:, 3].min()}, u_max: {points_inside_crop[:, 3].max()}, v_min: {points_inside_crop[:, 4].min()}, v_max: {points_inside_crop[:, 4].max()}")
-
-
-                labels_inside_crop = torch.Tensor([segmentation_mask[int(point[4].item()), int(point[3].item())] for point in points_inside_crop])
+                labels_inside_crop = torch.tensor([segmentation_mask[int(point[4].item()), int(point[3].item())] for point in points_inside_crop])
                 labels_np = np.array(labels_inside_crop)
+
+                fusable_pixels_mask = torch.zeros((h, w), dtype=torch.bool)
+                u_coords = points_inside_crop[:, 3] - j  # Shift to crop region
+                v_coords = points_inside_crop[:, 4] - i  # Shift to crop region
+
+                # Use advanced indexing to set the mask to True at projected points
+                fusable_pixels_mask[v_coords.int(), u_coords.int()] = True
                 
-                point_clouds_to_pad.append(points_inside_crop)
-                labels_to_pad.append(labels_inside_crop)
+                point_clouds_to_pad.append(projected_points_shifted_to_cropped_region)
+                pc_labels_to_pad.append(labels_inside_crop)
+                images.append(image_cropped)
+                image_seg_masks.append(segmentation_mask_cropped)
+                weather_conditions.append(torch.tensor(weather_condition2numeric(weather_condition), dtype=torch.int))
+                fusable_pixels_masks.append(fusable_pixels_mask)
 
                 # Visualization: full image with all points
                 fig, axs = plt.subplots(1, 2, figsize=(12, 6))
@@ -239,30 +261,24 @@ class SemanticLidarSegmentationDataModule(L.LightningDataModule):
                 axs[1].axis("off")
 
                 plt.tight_layout()
-                plt.savefig(f"imgs/pcls_imgs_projections_dm/projection_comparison_{self.prepared_elems_counter}.png")
+                plt.savefig(f"imgs/pcls_imgs_projections_dm/projection_comparison_{uuid.uuid4()}.png")
                 plt.close()
 
-                self.prepared_elems_counter += 1
-            """
-            fig, ax = plt.subplots(1, 1)
-            #ax.imshow(image_pil)
-            x_vals = points_inside_crop[:, 0]
-            y_vals = points_inside_crop[:, 1]
-            ax.scatter(x_vals, y_vals, c=labels_np, s=2, alpha=0.5)
-            ax.axis("off")
-            plt.savefig("projection.png")"
-            """
-                
-            #else:
-            #    log.info(f"Camera and lidar data incompatible: {camera_id} != {lidar_id}")
-        
-        point_clouds_padded, labels_padded = pad_batch(point_clouds_to_pad, labels_to_pad)
+            else:
+                log.warning(f"Element not projectable because lidar {lidar_id} != waymo_1")
+
+        point_clouds_padded, pc_labels_padded = pad_pc_batch(point_clouds_to_pad, pc_labels_to_pad)
 
         # Mask void_lbls with value ignore_index
         for void_lbl in self.void_idx:
-            labels_padded[labels_padded == void_lbl] = self.ignore_index       
+            pc_labels_padded[pc_labels_padded == void_lbl] = self.ignore_index       
 
-        log.info(f"Result of prepare_batch: {point_clouds_padded.shape}, {labels_padded.shape}")
+        images_tensor = torch.stack(images)
+        image_seg_masks_tensor = torch.stack(image_seg_masks)
+        point_clouds_padded_tensor = point_clouds_padded
+        pc_labels_tensor = pc_labels_padded
+        weather_conditions_tensor = torch.stack(weather_conditions)
+        fusable_pixels_tensor = torch.stack(fusable_pixels_masks)
 
-        return point_clouds_padded, labels_padded
+        return images_tensor, image_seg_masks_tensor, point_clouds_padded_tensor, pc_labels_tensor, weather_conditions_tensor, fusable_pixels_tensor
 
