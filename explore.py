@@ -53,7 +53,7 @@ def main():
     #explore_aki_ds_for_weather_classification()
     
     #5) Show waymo rain images
-    #explore_waymo_rain_images()
+    explore_waymo_rain_images()
 
     #6) Compare sunny vs rainy images of the waymo dataset
     #waymo_sunny_vs_rainy_images()
@@ -62,7 +62,7 @@ def main():
     #calc_waymo_rainy_vs_sunny_image_stats()
 
     #8) Explore point cloud img projection datamodule
-    explore_unified_datamodule()
+    #explore_unified_datamodule()
 
 
 if __name__ == "__main__":

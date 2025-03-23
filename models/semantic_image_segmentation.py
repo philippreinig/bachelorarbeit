@@ -72,13 +72,18 @@ class SemanticImageSegmentationModel(LightningModule):
         num_classes: int,
         ignore_index: int = 255,
         compile: bool = False,
-        train_epochs: int = 30
+        train_epochs: int = 30,
+        crop_size: tuple[int, int] = (800, 1600),
+        data_from_udm: bool = False,
     ):
         super().__init__()
 
+        self.crop_size = crop_size
+        self.data_from_udm = data_from_udm
+
         self.encoder = timm.create_model("resnet18", features_only=True, pretrained=True, output_stride=16)
         pyramid = self.encoder.feature_info.channels()
-        self.decoder = LRASPP(pyramid, num_classes, (886,1600))
+        self.decoder = LRASPP(pyramid, num_classes, self.crop_size)
 
         if compile:
             self.encoder = torch.compile(self.encoder)
@@ -102,7 +107,7 @@ class SemanticImageSegmentationModel(LightningModule):
         return logits
 
     def step(self, batch):
-        images, labels = batch
+        images, labels = (batch if not self.data_from_udm else (batch[0], batch[1])) 
         images = images.to(memory_format=torch.channels_last)
         logits = self(images)
         return self.loss_fn(logits, labels), logits, labels
@@ -112,8 +117,8 @@ class SemanticImageSegmentationModel(LightningModule):
         
         self.train_acc(logits, labels)
 
-        self.log("train/loss", loss)
-        self.log("train/accuracy", self.train_acc)
+        self.log("train_loss", loss)
+        self.log("train_acc", self.train_acc)
 
         return dict(loss=loss, logits=logits)
 
@@ -122,8 +127,8 @@ class SemanticImageSegmentationModel(LightningModule):
 
         self.val_acc(logits, labels)
 
-        self.log("validation/loss", loss)
-        self.log("validation/accuracy", self.val_acc)
+        self.log("val_loss", loss)
+        self.log("val_acc", self.val_acc)
         
         return dict(loss=loss, logits=logits)
 
@@ -132,16 +137,14 @@ class SemanticImageSegmentationModel(LightningModule):
 
         self.test_acc(logits, labels)
         
-        self.log("test/loss", loss, on_step=False, on_epoch=True)
-        self.log("test/accuracy", self.test_acc)
+        self.log("test_loss", loss, on_step=False, on_epoch=True)
+        self.log("test_acc", self.test_acc)
 
         return dict(loss=loss, logits=logits)
     
     def predict_step(self, batch, batch_idx):
 
         loss, logits, labels = self.step(batch)
-
-        log.info(f"Amount of elements in batch {batch_idx}: {batch[0].shape[0]}")
 
         return dict(loss=loss, logits=logits, labels=labels)
 

@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import logging
 import numpy as np
 
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import ListedColormap, BoundaryNorm
 
 log = logging.getLogger("rich")
 
@@ -319,6 +319,11 @@ def get_aki_label_colors_rgb():
 
 def get_aki_label_listed_color_map():
     return ListedColormap(np.array(get_aki_label_colors_rgb())/255)
+
+def get_aki_label_boundary_norm(listed_cmap=get_aki_label_listed_color_map()):
+    boundary_norm = BoundaryNorm(range(len(aki_labels) + 1), listed_cmap.N)
+    return boundary_norm
+
     
 def get_aki_label_names():
     label_names = [aki_label["name"] for aki_label in aki_labels]
@@ -355,3 +360,6 @@ def visualize_aki_labels(lbls: list[dict] = aki_labels):
     
     plt.savefig("aki_labels.png")
     plt.close()
+
+if __name__ == "__main__":
+    visualize_aki_labels()

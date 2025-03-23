@@ -21,8 +21,11 @@ class WeatherClassificationDataModule(LightningDataModule):
         datasets: List[str] = ["all"],
         batch_size: int = 32,
         num_workers: int = 1,
+        scenario: str = "all",
         order_by: str = None,
         shuffle = False,
+        normalize_imgs: bool = True,
+        crop_size: tuple[int, int] = (800, 1600),
         dbtype = "psycopg@ants"
     ) -> None:
         """
@@ -31,11 +34,15 @@ class WeatherClassificationDataModule(LightningDataModule):
         """
         super().__init__()
         self.datasets = datasets
+        self.scenario = scenario
         self.order_by = order_by
         self.shuffle = shuffle
 
         self.batch_size = batch_size
         self.num_workers = num_workers
+
+        self.normalize_imgs = normalize_imgs
+        self.crop_size = crop_size
 
         self.dbtype = dbtype
 
@@ -80,6 +87,7 @@ class WeatherClassificationDataModule(LightningDataModule):
             data,
             splits=["training"],
             datasets=self.datasets,
+            scenario=self.scenario,
             orderby=self.order_by,
             limit=self.train_limit,
             dbtype=self.dbtype,
@@ -89,6 +97,7 @@ class WeatherClassificationDataModule(LightningDataModule):
         self.val_ds = AKIDataset(
             data,
             splits=["validation"],
+            scenario=self.scenario,
             datasets=self.datasets,
             dbtype=self.dbtype,
             orderby=self.order_by,
@@ -99,6 +108,7 @@ class WeatherClassificationDataModule(LightningDataModule):
         self.test_ds = AKIDataset(
             data,
             splits=["testing"],
+            scenario=self.scenario,
             datasets=self.datasets,
             dbtype=self.dbtype,
             orderby=self.order_by,
@@ -106,13 +116,13 @@ class WeatherClassificationDataModule(LightningDataModule):
             shuffle=self.shuffle
         )
 
-        train_ds_amt_sunny_imgs, train_ds_amt_rainy_imgs = get_label_distribution(self.train_ds, 1)
-        val_ds_amt_sunny_imgs, val_ds_amt_rainy_imgs = get_label_distribution(self.val_ds, 1)
-        test_ds_amt_sunny_imgs, test_ds_amt_rainy_imgs = get_label_distribution(self.test_ds, 1)
+        #train_ds_amt_sunny_imgs, train_ds_amt_rainy_imgs = get_label_distribution(self.train_ds, 1)
+        #val_ds_amt_sunny_imgs, val_ds_amt_rainy_imgs = get_label_distribution(self.val_ds, 1)
+        #test_ds_amt_sunny_imgs, test_ds_amt_rainy_imgs = get_label_distribution(self.test_ds, 1)
 
-        log.info(f"Train dataloader contains {train_ds_amt_sunny_imgs} sunny images, {train_ds_amt_rainy_imgs} rainy images, {elems_in_dataset(self.train_ds.count, self.train_limit)} total elements and yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} batches per epoch.")
-        log.info(f"Validation dataloader contains {val_ds_amt_sunny_imgs} sunny images, {val_ds_amt_rainy_imgs} rainy images, {elems_in_dataset(self.val_ds.count, self.val_limit)} total elements and yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} batches per epoch.")
-        log.info(f"Test dataloader contains {test_ds_amt_sunny_imgs} sunny images, {test_ds_amt_rainy_imgs} rainy images, {elems_in_dataset(self.test_ds.count, self.test_limit)} total elements and yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.test_limit)} batches per epoch.")
+        #log.info(f"Train dataloader contains {train_ds_amt_sunny_imgs} sunny images, {train_ds_amt_rainy_imgs} rainy images, {elems_in_dataset(self.train_ds.count, self.train_limit)} total elements and yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} batches per epoch.")
+        #log.info(f"Validation dataloader contains {val_ds_amt_sunny_imgs} sunny images, {val_ds_amt_rainy_imgs} rainy images, {elems_in_dataset(self.val_ds.count, self.val_limit)} total elements and yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} batches per epoch.")
+        #log.info(f"Test dataloader contains {test_ds_amt_sunny_imgs} sunny images, {test_ds_amt_rainy_imgs} rainy images, {elems_in_dataset(self.test_ds.count, self.test_limit)} total elements and yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.test_limit)} batches per epoch.")
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -140,20 +150,32 @@ class WeatherClassificationDataModule(LightningDataModule):
         )
 
     def _prepare_batch(self, batch) -> tuple[torch.Tensor, torch.Tensor]:
-        label_batch = torch.tensor([weather_condition2numeric(elem[1]) for elem in batch], dtype=torch.long)
+        #label_batch = torch.tensor([weather_condition2numeric(elem[1]) for elem in batch], dtype=torch.long)
+        label_batch = [elem[1] for elem in batch]
 
         img_batch = torch.stack([self._preprocess(label_batch[i])(elem[0]) for i, elem in enumerate(batch)], 0)
 
         return img_batch, label_batch
 
     def _preprocess(self, label: int) -> Callable:
-        if label == 0: # Sunny image
-            return transform_lib.Compose([
-                self.normalize_sunny,
-                transform_lib.RandomCrop(size=(886, 1600))
-            ])
-        else: # Rainy image
-            return transform_lib.Compose([
-                self.normalize_rainy,
-                transform_lib.RandomCrop(size=(886, 1600))
-            ])
+        if self.normalize_imgs:
+            if label == 0: # Sunny image
+                return transform_lib.Compose([
+                    self.normalize_sunny,
+                    transform_lib.RandomCrop(size=self.crop_size)
+                ])
+            else: # Rainy image
+                return transform_lib.Compose([
+                    self.normalize_rainy,
+                    transform_lib.RandomCrop(size=self.crop_size)
+                ])
+        else:
+            if label == 0: # Sunny image
+                return transform_lib.Compose([
+                    transform_lib.RandomCrop(size=self.crop_size)
+                ])
+            else: # Rainy image
+                return transform_lib.Compose([
+                    transform_lib.RandomCrop(size=self.crop_size)
+                ])
+

@@ -9,7 +9,7 @@ import uuid
 
 from typing import List, Optional
 from torch.utils.data import DataLoader
-from data_modules.data_module_utils import runs_per_epoch, randomly_crop, weather_condition2numeric
+from data_modules.data_module_utils import runs_per_epoch, randomly_crop, weather_condition2numeric, elems_in_dataset
 from torchvision.transforms.functional import to_pil_image
 
 from akiset import AKIDataset
@@ -23,13 +23,16 @@ class UnifiedDataModule(L.LightningDataModule):
         self,
         scenario: str = "all",
         datasets: List[str] = ["all"],
-        batch_size: int = 3,
+        batch_size: int = 32,
         num_workers: int = 1,
         order_by: str = None,
         train_limit: int = None,
         val_limit: int = None,
+        test_limit: int = None,
         downsampled_pointcloud_size: Optional[int] = None,
         shuffle: bool = False,
+        crop_size: tuple[int, int] = (886, 1600),
+        grid_cells: tuple[int, int] = (1,1),
         classes: Optional[List[str]] = None,
         void: Optional[List[str]] = None,
         ignore_index: Optional[int] = 255,
@@ -40,6 +43,9 @@ class UnifiedDataModule(L.LightningDataModule):
         if downsampled_pointcloud_size not in [None, 4000, 8000, 16000]:
             raise ValueError(f"Invalid downsampled point cloud size. Must be one of: 4000, 8000, 16000, but is: {downsampled_pointcloud_size}")
 
+        if crop_size[0] % grid_cells[0] != 0 or crop_size[1] % grid_cells[1] != 0:
+            raise ValueError(f"Crop size must be divisible by grid dimensions, which is not the case for {crop_size} and {grid_cells}")
+
         self.dbtype = dbtype
 
         self.scenario = scenario
@@ -47,6 +53,7 @@ class UnifiedDataModule(L.LightningDataModule):
         self.order_by = order_by
         self.train_limit = train_limit
         self.val_limit = val_limit
+        self.test_limit = test_limit
         self.shuffle = shuffle
         self.downsampled_pointcloud_size = downsampled_pointcloud_size
 
@@ -59,7 +66,10 @@ class UnifiedDataModule(L.LightningDataModule):
         self.valid_idx = [classes.index(c) for c in self._valid_classes]
         self.void_idx = [classes.index(c) for c in void]
 
-        self.crop_size = (886, 1600)
+        self.crop_size = crop_size
+        self.grid_cells = grid_cells
+
+        self.prepared_elems = 0
 
         log.info(f"Valid indxs: {self.valid_idx}")
         log.info(f"Void indxs: {self.void_idx}")
@@ -73,6 +83,8 @@ class UnifiedDataModule(L.LightningDataModule):
         log.info(f"Train limit: {self.train_limit}")
         log.info(f"Val limit: {self.val_limit}")
         log.info(f"Datasets: {self.datasets}")
+        log.info(f"Crop size: {self.crop_size}")
+        log.info(f"Grid cells: {self.grid_cells}")
 
     @property
     def classes(self) -> List[str]:
@@ -126,12 +138,13 @@ class UnifiedDataModule(L.LightningDataModule):
             scenario=self.scenario,
             datasets=self.datasets,
             dbtype=self.dbtype,
+            limit=self.test_limit,
             shuffle=self.shuffle
         )
 
-        log.info(f"Train dataloader contains {self.train_ds.count} elements. It yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} runs per epoch (batch size is {self.batch_size})")
-        log.info(f"Validation dataloader contains {self.val_ds.count} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} runs per epoch (batch size is {self.batch_size})")
-        log.info(f"Test dataloader contains {self.test_ds.count} elements. It yields {runs_per_epoch(self.test_ds.count, self.batch_size)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Train dataloader contains {elems_in_dataset(self.train_ds.count, self.train_limit)} elements. It yields {runs_per_epoch(self.train_ds.count, self.batch_size, self.train_limit)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Validation dataloader contains {elems_in_dataset(self.val_ds.count, self.val_limit)} elements. It yields {runs_per_epoch(self.val_ds.count, self.batch_size, self.val_limit)} runs per epoch (batch size is {self.batch_size})")
+        log.info(f"Test dataloader contains {elems_in_dataset(self.test_ds.count, self.test_limit)} elements. It yields {runs_per_epoch(self.test_ds.count, self.batch_size, self.test_limit)} runs per epoch (batch size is {self.batch_size})")
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -186,6 +199,7 @@ class UnifiedDataModule(L.LightningDataModule):
         image_seg_masks = []
         point_clouds_to_pad = []
         pc_labels_to_pad = []
+        point_pixel_projections = []
         weather_conditions = []
         fusable_pixels_masks = []
 
@@ -207,8 +221,7 @@ class UnifiedDataModule(L.LightningDataModule):
                 points_projected = project_vehicle_to_image_waymo(lidar_vehicle_pose, camera_params, image_width, image_heigth, point_cloud)
                 image_cropped, segmentation_mask_cropped, i, j, h, w = randomly_crop(image, segmentation_mask, self.crop_size)
 
-                image_pil = to_pil_image(image)
-                image_pil_cropped = to_pil_image(image_cropped)
+                
                 points_inside_crop_mask = points_projected[:, 2].astype(bool)
                 points_inside_crop_mask = np.logical_and(points_inside_crop_mask, points_projected[:, 0] >= j)
                 points_inside_crop_mask = np.logical_and(points_inside_crop_mask, points_projected[:, 0] < j+w)
@@ -220,33 +233,58 @@ class UnifiedDataModule(L.LightningDataModule):
                 # Create a combined tensor where each element consists of 5 values: x,y,z coordinates and u,v pixel coordinates
                 points = torch.hstack((torch.tensor(point_cloud), torch.tensor(points_projected[:,:2]).to(torch.int)))
 
-
                 # Only get all points inside the cropped area by applying the mask
-                points_inside_crop = torch.tensor(points)[torch.tensor(points_inside_crop_mask, dtype=torch.bool)]
+                points_inside_crop = points[torch.tensor(points_inside_crop_mask, dtype=torch.bool)]
 
                 # Shift projected pixel indices of points to the cropped region
-                projected_points_shifted_to_cropped_region = points_inside_crop.clone()
-                projected_points_shifted_to_cropped_region[:, 3:5] -= torch.tensor([j, i])
+                points_shifted_to_crop = points_inside_crop.clone()
+                points_shifted_to_crop[:, 3:5] -= torch.tensor([j, i])
                 
                 labels_inside_crop = torch.tensor([segmentation_mask[int(point[4].item()), int(point[3].item())] for point in points_inside_crop])
-                labels_np = np.array(labels_inside_crop)
 
-                fusable_pixels_mask = torch.zeros((h, w), dtype=torch.bool)
-                u_coords = points_inside_crop[:, 3] - j  # Shift to crop region
-                v_coords = points_inside_crop[:, 4] - i  # Shift to crop region
+                cell_height = self.crop_size[0] // self.grid_cells[0]
+                cell_width = self.crop_size[1] // self.grid_cells[1]
 
-                # Use advanced indexing to set the mask to True at projected points
-                fusable_pixels_mask[v_coords.int(), u_coords.int()] = True
-                
-                point_clouds_to_pad.append(projected_points_shifted_to_cropped_region)
-                pc_labels_to_pad.append(labels_inside_crop)
-                images.append(image_cropped)
-                image_seg_masks.append(segmentation_mask_cropped)
-                weather_conditions.append(torch.tensor(weather_condition2numeric(weather_condition), dtype=torch.int))
-                fusable_pixels_masks.append(fusable_pixels_mask)
+                for grid_row in range(self.grid_cells[0]):
+                    for grid_col in range(self.grid_cells[1]):
+                        u_start, u_end = grid_row * cell_height, (grid_row + 1) * cell_height
+                        v_start, v_end = grid_col * cell_width, (grid_col + 1) * cell_width
+
+                        img_cell = image_cropped[:, u_start:u_end, v_start:v_end]
+                        img_seg_mask_cell = segmentation_mask_cropped[u_start:u_end, v_start:v_end]
+                        
+                        points_inside_cell_mask = torch.ones(points_shifted_to_crop.shape[0], dtype=torch.bool)
+                        points_inside_cell_mask = torch.logical_and(points_inside_cell_mask, points_shifted_to_crop[:, 3] >= v_start)
+                        points_inside_cell_mask = torch.logical_and(points_inside_cell_mask, points_shifted_to_crop[:, 3] < v_end)
+                        points_inside_cell_mask = torch.logical_and(points_inside_cell_mask, points_shifted_to_crop[:, 4] >= u_start)
+                        points_inside_cell_mask = torch.logical_and(points_inside_cell_mask, points_shifted_to_crop[:, 4] < u_end)
+                                           
+                        points_in_cell = points_shifted_to_crop[points_inside_cell_mask]
+                        points_in_and_shifted_to_cell = points_in_cell.clone()
+                        points_in_and_shifted_to_cell[:, 3:5] -= torch.tensor([v_start, u_start])
+
+                        points_in_cell_labels = labels_inside_crop[points_inside_cell_mask]
+
+                        fusable_pixels_cell_mask = torch.zeros((cell_height, cell_width), dtype=torch.bool)
+                        u_coords_points_in_cell = points_in_and_shifted_to_cell[:, 3].int()
+                        v_coords_points_in_cell = points_in_and_shifted_to_cell[:, 4].int()
+                        fusable_pixels_cell_mask[v_coords_points_in_cell, u_coords_points_in_cell] = True
+
+                        if fusable_pixels_cell_mask.sum() >= 1:
+                            point_clouds_to_pad.append(points_in_and_shifted_to_cell[:, :3])
+                            pc_labels_to_pad.append(points_in_cell_labels)
+                            point_pixel_projections.append(points_in_and_shifted_to_cell)
+                            images.append(img_cell)
+                            image_seg_masks.append(img_seg_mask_cell)
+                            weather_conditions.append(torch.tensor(weather_condition2numeric(weather_condition), dtype=torch.int))
+                            fusable_pixels_masks.append(fusable_pixels_cell_mask)
+
+                        else:
+                            log.info(f"Cell discarded because it doesn't contain any fusable pixels")
 
                 # Visualization: full image with all points
                 fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+                image_pil = to_pil_image(image)
                 axs[0].imshow(image_pil)
                 axs[0].scatter(points_projected[:, 0], points_projected[:, 1], c='blue', s=1, alpha=0.3)
                 axs[0].set_title("Full Image with All Projected Points")
@@ -256,7 +294,7 @@ class UnifiedDataModule(L.LightningDataModule):
                 axs[1].imshow(image_pil)
                 rect = plt.Rectangle((j, i), w, h, linewidth=2, edgecolor='red', facecolor='none')
                 axs[1].add_patch(rect)
-                axs[1].scatter(points_inside_crop[:, 3], points_inside_crop[:, 4], c=labels_np, s=1, alpha=0.7)
+                axs[1].scatter(points_inside_crop[:, 3], points_inside_crop[:, 4], c=np.array(labels_inside_crop), s=1, alpha=0.7)
                 axs[1].set_title("Cropped Region with Points")
                 axs[1].axis("off")
 
@@ -264,8 +302,8 @@ class UnifiedDataModule(L.LightningDataModule):
                 plt.savefig(f"imgs/pcls_imgs_projections_dm/projection_comparison_{uuid.uuid4()}.png")
                 plt.close()
 
-            else:
-                log.warning(f"Element not projectable because lidar {lidar_id} != waymo_1")
+            #else:
+                #log.warning(f"Element not projectable because lidar {lidar_id} != waymo_1")
 
         point_clouds_padded, pc_labels_padded = pad_pc_batch(point_clouds_to_pad, pc_labels_to_pad)
 
@@ -279,6 +317,9 @@ class UnifiedDataModule(L.LightningDataModule):
         pc_labels_tensor = pc_labels_padded
         weather_conditions_tensor = torch.stack(weather_conditions)
         fusable_pixels_tensor = torch.stack(fusable_pixels_masks)
+        
+        self.prepared_elems += len(images)
+        log.info(f"Batch contains {len(images)} elements, total elements: {self.prepared_elems}")
 
-        return images_tensor, image_seg_masks_tensor, point_clouds_padded_tensor, pc_labels_tensor, weather_conditions_tensor, fusable_pixels_tensor
+        return images_tensor, image_seg_masks_tensor, point_clouds_padded_tensor, pc_labels_tensor, weather_conditions_tensor, fusable_pixels_tensor, point_pixel_projections
 

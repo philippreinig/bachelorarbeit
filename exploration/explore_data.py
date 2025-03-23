@@ -17,8 +17,7 @@ from data_modules.weather_classification_datamodule import WeatherClassification
 from data_modules.unified_datamodule import UnifiedDataModule
 from utils.data_preparation import prepare_batch, divide_batch_of_tensors
 from utils.misc import add_segmentation_mask_to_img
-from utils.aki_labels import get_aki_label_names, get_aki_label_listed_color_map
-from matplotlib.colors import ListedColormap
+from utils.aki_labels import get_aki_label_names, get_aki_label_listed_color_map, get_aki_label_boundary_norm
 
 
 log = logging.getLogger("rich")
@@ -89,7 +88,6 @@ def explore_aki_dataset(aki_dataset: AKIDataset, colors: list[tuple], max_imgs_t
 
         imgs_exported += 1
 
-
 def explore_sis_dm_train_dataloader(dm: SemanticImageSegmentationDataModule, colors: list[tuple], max_imgs_to_export: int = 10,
                                     export_dir = "imgs/explore_sis_dm_train_dataloader/"): 
     """
@@ -110,7 +108,6 @@ def explore_sis_dm_train_dataloader(dm: SemanticImageSegmentationDataModule, col
                 return
             overlay_mask_and_export_img(img, label, colors, export_dir, contains_masked_pixels=True)
             imgs_exported += 1
-
 
 def explore_weather_classification_train_dataloader(dm: WeatherClassificationDataModule):
     rain_labels = 0
@@ -155,13 +152,14 @@ def explore_aki_ds_for_weather_classification():
     log.info(f"Total amount of elements in train data loader: {total_elements}")
 
 def explore_waymo_rain_images():
-    imgs_per_slide = 36 # This should be a square number for the grid ordering to play out nicely
-    total_imgs = 720 # This should be a multiple of imgs_per_slide
+    imgs_per_slide = 4 # This should be a square number for the grid ordering to play out nicely
+    total_imgs = 40 # This should be a multiple of imgs_per_slide
     n = int(math.sqrt(imgs_per_slide))
 
     wcdm = WeatherClassificationDataModule(order_by="weather",
-                                           limit=total_imgs,
+                                           scenario="rain",
                                            datasets=["waymo"],
+                                           normalize_imgs=False,
                                            batch_size=imgs_per_slide)
     wcdm.setup()
 
@@ -173,22 +171,24 @@ def explore_waymo_rain_images():
         imgs = batch[0]
         labels = batch[1]
 
-        fig, axs = plt.subplots(n, n)
+        if all(label == "rain" for label in labels):
 
-        for i in range(0, imgs_per_slide):
-            img = imgs[i]
-            ax = axs[i // n, i % n]
-            label = labels[i]
-            ax.axis("off")
-            #log.info(f"img dimensions: {img.shape}")
-            ax.imshow(img.permute(1,2,0))
-            ax.text(0,0, label)
-            #ax.imshow(add_segmentation_mask_to_img(img, label).permute(1,2,0))
-        plt.tight_layout(h_pad=0.3, w_pad=0.3)
-        plt.savefig(f"imgs/waymo_rain/{str(uuid.uuid4())}", dpi=300)
-        plt.close(fig)
+            fig, axs = plt.subplots(n, n)
 
-        imgs_exported += imgs_per_slide
+            for i in range(0, imgs_per_slide):
+                img = imgs[i]
+                ax = axs[i // n, i % n]
+                label = labels[i]
+                ax.axis("off")
+                #log.info(f"img dimensions: {img.shape}")
+                ax.imshow(img.permute(1,2,0))
+                ax.set_title(label)
+                #ax.imshow(add_segmentation_mask_to_img(img, label).permute(1,2,0))
+            plt.tight_layout(h_pad=0.3, w_pad=0.3)
+            plt.savefig(f"imgs/nuscenes_rain_imgs/{str(uuid.uuid4())}", dpi=300)
+            plt.close(fig)
+
+            imgs_exported += imgs_per_slide
 
 def waymo_sunny_vs_rainy_images():
     total_imgs = 200 #
@@ -269,16 +269,19 @@ def calc_waymo_rainy_vs_sunny_image_stats():
     return sunny_mean, sunny_std, rainy_mean, rainy_std
 
 def explore_unified_datamodule():
-    scenario = "all"
+    scenario = "rain"
     datasets = ["waymo"]
     order_by = "weather"
     batch_size = 10
     downsampled_pointcloud_size = 16000
     classes = get_aki_label_names()
-    void_classes = ["void", "static"]
+    void_classes = []
     train_limit = 30
     val_limit = 50
-    shuffle=True
+    test_limit = 50
+    shuffle=False
+    crop_size=(800,1600)
+    grid_cells=(4,4)
 
     # Create data module
     udm = UnifiedDataModule(scenario=scenario,
@@ -286,10 +289,13 @@ def explore_unified_datamodule():
                             batch_size=batch_size,
                             #downsampled_pointcloud_size=downsampled_pointcloud_size,
                             datasets=datasets,
+                            grid_cells=grid_cells,
+                            crop_size=crop_size,
                             classes=classes,
                             void=void_classes,
                             train_limit=train_limit,
                             val_limit=val_limit,
+                            test_limit=test_limit,
                             shuffle=shuffle)
 
     udm.setup()
@@ -318,13 +324,15 @@ def explore_unified_datamodule():
             axs[0].axis("off")
 
             # 2. Plot segmentation mask
-            axs[1].imshow(seg_mask, cmap=get_aki_label_listed_color_map())
+            axs[1].imshow(seg_mask, cmap=get_aki_label_listed_color_map(),
+                                    norm=get_aki_label_boundary_norm(),
+                                    interpolation="nearest")
             axs[1].set_title("Segmentation Mask")
             axs[1].axis("off")
 
             # 3. Plot image with projected points
             axs[2].imshow(image)
-            axs[2].scatter(pc[:, 3], pc[:, 4], c=labels, cmap=get_aki_label_listed_color_map(), s=1)  # u, v for image space
+            axs[2].scatter(pc[:, 3], pc[:, 4], c=labels, cmap=get_aki_label_listed_color_map(), norm=get_aki_label_boundary_norm(), s=1)  # u, v for image space
             axs[2].set_title("Projected Points with Labels")
             axs[2].axis("off")
 
@@ -345,7 +353,6 @@ def explore_unified_datamodule():
             plt.savefig(f"imgs/unified_datamodule/{uuid.uuid4()}")
 
 
-"""
 def explore_imgs_in_different_weather_conditions():
 
     imgs_per_slide = 4 # This should be a square number for the grid ordering to play out nicely
@@ -435,4 +442,3 @@ def export_divided_imgs():
             plt.close(fig)
 
             log.info(f"{x * batch_size} images divided and exported to file")
-"""

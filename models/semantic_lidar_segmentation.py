@@ -63,15 +63,16 @@ class PointNet2(L.LightningModule):
         set_abstraction_radius_2: float = 0.25,
         dropout: float = 0.1,
         ignore_index: int = 255,
-        train_epochs: int = 30,
+        train_epochs: int = 100,
+        data_from_udm: bool = False
     ):
         super().__init__()
 
         self.num_classes = num_classes
         self.ignore_index = ignore_index
         self.train_epochs = train_epochs
+        self.data_from_udm = data_from_udm
 
-        # Input channels account for both `pos` and node features.
         self.sa1_module = SetAbstraction(
             set_abstraction_ratio_1,
             set_abstraction_radius_1,
@@ -96,6 +97,11 @@ class PointNet2(L.LightningModule):
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_index)
 
 
+        log.info(f"PointNet++ - Num classes: {self.num_classes}")
+        log.info(f"PointNet++ - Ignore index: {self.ignore_index}")
+        log.info(f"PointNet++ - Train epochs: {self.train_epochs}")
+        log.info(f"PointNet++ - Data from UnifiedDataModule: {self.data_from_udm}")
+
     def forward(self, point_clouds):
         batch_size, num_points, _ = point_clouds.size()
         positions = point_clouds.view(-1, 3)
@@ -118,7 +124,7 @@ class PointNet2(L.LightningModule):
 
 
     def step(self, batch):
-        point_clouds, labels = batch
+        point_clouds, labels = (batch if not self.data_from_udm else (batch[2], batch[3]))
 
         logits = self(point_clouds)
         labels = labels.view(-1)
@@ -134,8 +140,6 @@ class PointNet2(L.LightningModule):
 
         self.log("train_loss", loss)
         self.log("train_accuracy", train_acc_step)
-
-        #log.info(f"Train loss and accuracy after step {batch_idx}: {loss}, {train_acc_step}")
 
         return dict(loss=loss, logits=logits)
 
