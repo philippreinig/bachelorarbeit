@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=eval
+#SBATCH --job-name=create_clm
 #SBATCH --partition=gpu
 #SBATCH --mail-type=END,FAIL    
 #SBATCH --mail-user=reinig@ovgu.de
@@ -21,4 +21,4 @@ export TF_CPP_MIN_LOG_LEVEL=1
 #echo $CUDA_VISIBLE_DEVICES
 #echo $PYTORCH_CUDA_ALLOC_CONF
 
-srun python3 evaluate.py $SLURM_JOB_ID
+srun python3 create_clms.py $SLURM_JOB_ID

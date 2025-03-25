@@ -8,7 +8,8 @@ from exploration.explore_data import explore_aki_dataset, \
                                      explore_waymo_rain_images, \
                                      waymo_sunny_vs_rainy_images, \
                                      calc_waymo_rainy_vs_sunny_image_stats, \
-                                     explore_unified_datamodule
+                                     explore_unified_datamodule, \
+                                     get_waymo_img_label_distribution
 from akiset import AKIDataset
 from utils.aki_labels import get_aki_label_names, get_aki_label_colors_rgb
 from data_modules.semantic_image_segmentation_datamodule import SemanticImageSegmentationDataModule
@@ -53,7 +54,7 @@ def main():
     #explore_aki_ds_for_weather_classification()
     
     #5) Show waymo rain images
-    explore_waymo_rain_images()
+    #explore_waymo_rain_images()
 
     #6) Compare sunny vs rainy images of the waymo dataset
     #waymo_sunny_vs_rainy_images()
@@ -63,6 +64,11 @@ def main():
 
     #8) Explore point cloud img projection datamodule
     #explore_unified_datamodule()
+
+    #9) Get waymo img label distribution
+    get_waymo_img_label_distribution()
+
+
 
 
 if __name__ == "__main__":

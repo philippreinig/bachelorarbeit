@@ -1,6 +1,6 @@
 import torch
 
-def unimodal_normalized_clm_from_img_batch(predictions: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+def create_unimodal_normalized_clm_from_img_batch(predictions: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     """_summary_
     Args:
         predictions (torch.Tensor): Tensor of shape [n, h, w, p] containing sis predictions for n images of
@@ -24,8 +24,7 @@ def unimodal_normalized_clm_from_img_batch(predictions: torch.Tensor, labels: to
 
     return clm_normalized
 
-
-def unimodal_normalized_clm(predictions: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+def create_unimodal_normalized_clm(predictions: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     """_summary_
     Args:
         predictions (torch.Tensor): Tensor of shape [..., c] containing predictions over c classes.
@@ -47,7 +46,7 @@ def ns(clm: torch.Tensor) -> torch.Tensor:
     assert(clm.dim() == 2), f"Passed matrix must be two dimensional, but has shape: {clm.shape}"
     assert(clm.shape[0] == clm.shape[1]), f"Passed matrix must be quadratic, but has shape: {clm.shape}"
     row_sums = clm.sum(dim=1, keepdim=True)
-    ns = clm / row_sums
+    ns = 1 / row_sums
     # If all values in a row are 0, a 0 by 0 divison occurs by the expression above -> change all nan values to 0
     ns = torch.nan_to_num(ns, nan=0) 
     return ns
@@ -56,7 +55,7 @@ def nr(clm: torch.Tensor) -> torch.Tensor:
     assert(clm.dim() == 2), f"Passed matrix must be two dimensional, but has shape: {clm.shape}"
     assert(clm.shape[0] == clm.shape[1]), f"Passed matrix must be quadratic, but has shaep: {clm.shape}"
     col_sums = clm.sum(dim=0)  
-    nr = clm / col_sums
+    nr = 1 / col_sums
     # If all values in a column are 0, a 0 by 0 divison occurs by the expression above -> change all nan values to 0
     nr = torch.nan_to_num(nr, nan=0)   
     return nr
@@ -83,9 +82,9 @@ def create_multimodal_normalized_clm(cam_predictions: torch.Tensor, lid_predicti
 
     amt_classes = cam_predictions.shape[-1]
 
-    clm_cam = unimodal_normalized_clm(cam_predictions, labels)
+    clm_cam = create_unimodal_normalized_clm(cam_predictions, labels)
     nr_cam = nr(clm_cam)
-    clm_lid = unimodal_normalized_clm(lid_predictions, labels)
+    clm_lid = create_unimodal_normalized_clm(lid_predictions, labels)
     nr_lid = nr(clm_lid)
     p_cam_if_real = clm_cam * nr_cam # P(S^C|R)
     p_lid_if_real = clm_lid * nr_lid # P(S^L|R)
@@ -100,9 +99,7 @@ def create_multimodal_normalized_clm(cam_predictions: torch.Tensor, lid_predicti
 
     assert(p_r_sc_sl.shape == [amt_classes, amt_classes, amt_classes])
 
-
     return p_r_sc_sl
-
 
 def check_create_clm():
     b, h, w, c = 2, 1, 3, 5  # Example dimensions
@@ -118,9 +115,9 @@ def check_create_clm():
     print(f"Camera predictions tensor: {cam_predictions}")
     print(f"Label tensor: {labels_one_hot}")
 
-    cam_clm_from_img_batch = unimodal_normalized_clm_from_img_batch(cam_predictions, labels_one_hot)
-    cam_clm_universal = unimodal_normalized_clm(cam_predictions, labels_one_hot)
-    lid_clm = unimodal_normalized_clm(lid_predictions, labels_one_hot)
+    cam_clm_from_img_batch = create_unimodal_normalized_clm_from_img_batch(cam_predictions, labels_one_hot)
+    cam_clm_universal = create_unimodal_normalized_clm(cam_predictions, labels_one_hot)
+    lid_clm = create_unimodal_normalized_clm(lid_predictions, labels_one_hot)
 
     print(f"From img batch: {cam_clm_from_img_batch}")
     print(f"Universal: {cam_clm_universal}")

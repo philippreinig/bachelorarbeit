@@ -162,6 +162,36 @@ class PointNet2(L.LightningModule):
         self.log("test_accuracy", self.test_acc, on_step=False, on_epoch=True, sync_dist=True)
 
         return dict(loss=loss, logits=logits)
+    
+    def predict_step(self, batch, batch_idx):
+        loss, logits, labels = self.step(batch)
+
+        amt_batch_elems = batch[0].shape[0]
+        elems_per_batch = labels.shape[0] // amt_batch_elems  # Also equal to logits.shape[0] // amt_batch_elems
+
+        assert labels.shape[0] % amt_batch_elems == 0
+        assert logits.shape[0] % amt_batch_elems == 0
+        assert batch[2].shape[0] == batch[3].shape[0]
+
+        logits_list = []
+        labels_list = []
+
+        for i in range(amt_batch_elems):
+            start_idx = i * elems_per_batch
+            end_idx = (i + 1) * elems_per_batch
+
+            elem_logits = logits[start_idx:end_idx]
+            elem_labels = labels[start_idx:end_idx]
+
+            # Remove padding
+            valid_mask = elem_labels != 255
+            elem_logits = elem_logits[valid_mask]
+            elem_labels = elem_labels[valid_mask]
+
+            logits_list.append(elem_logits)
+            labels_list.append(elem_labels)
+
+        return dict(loss=loss, logits=logits_list, labels=labels_list)
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=1e-4, weight_decay=1e-6)

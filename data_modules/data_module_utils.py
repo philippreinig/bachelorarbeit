@@ -47,7 +47,7 @@ class FilterVoidLabels(transform_lib.Transform):
         return image, label, weather_condition
 
 def elems_in_dataset(dataset_size: int, limit: Optional[int] = None) -> int:
-    return min(dataset_size, limit) if limit else dataset_size
+    return min(dataset_size, limit) if limit and limit > 0 else dataset_size
     
 def runs_per_epoch(dataset_size: int, batch_size: int, limit: Optional[int] = None) -> int:
     dataloader_size = elems_in_dataset(dataset_size, limit)

@@ -362,4 +362,4 @@ def visualize_aki_labels(lbls: list[dict] = aki_labels):
     plt.close()
 
 if __name__ == "__main__":
-    visualize_aki_labels()
+    print(get_aki_label_names())

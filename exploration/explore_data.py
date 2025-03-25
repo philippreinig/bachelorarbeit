@@ -442,3 +442,21 @@ def export_divided_imgs():
             plt.close(fig)
 
             log.info(f"{x * batch_size} images divided and exported to file")
+
+def get_waymo_img_label_distribution():
+    aki_ds = AKIDataset({"camera_segmentation": ["camera_segmentation"]},
+                        datasets=["waymo"],
+                        scenario="rain",
+                        splits=["validation"])
+    
+    amt_classes = 27
+    
+    amt_labels_per_class = np.zeros(amt_classes, dtype=np.int)
+    
+    for i, seg_mask in enumerate(aki_ds):
+        for lbl_indx in range(amt_classes):
+            amt_labels_per_class[lbl_indx] +=  (seg_mask[0] == lbl_indx).sum().item()
+
+        if i % 5_000 == 0:
+            print(f"{i} elements done")
+    print(amt_labels_per_class.tolist())

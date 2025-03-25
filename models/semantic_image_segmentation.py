@@ -127,8 +127,8 @@ class SemanticImageSegmentationModel(LightningModule):
 
         self.val_acc(logits, labels)
 
-        self.log("val_loss", loss)
-        self.log("val_acc", self.val_acc)
+        self.log("val_loss", loss, on_step=False, on_epoch=True)
+        self.log("val_acc", self.val_acc, on_step=False, on_epoch=True)
         
         return dict(loss=loss, logits=logits)
 
@@ -138,7 +138,7 @@ class SemanticImageSegmentationModel(LightningModule):
         self.test_acc(logits, labels)
         
         self.log("test_loss", loss, on_step=False, on_epoch=True)
-        self.log("test_acc", self.test_acc)
+        self.log("test_acc", self.test_acc, on_step=False, on_epoch=True)
 
         return dict(loss=loss, logits=logits)
     

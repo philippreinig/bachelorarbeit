@@ -26,15 +26,15 @@ class UnifiedDataModule(L.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 1,
         order_by: str = None,
-        train_limit: int = None,
-        val_limit: int = None,
-        test_limit: int = None,
+        train_limit: int = -1,
+        val_limit: int = -1,
+        test_limit: int = -1,
         downsampled_pointcloud_size: Optional[int] = None,
         shuffle: bool = False,
-        crop_size: tuple[int, int] = (886, 1600),
+        crop_size: tuple[int, int] = (800, 1600),
         grid_cells: tuple[int, int] = (1,1),
         classes: Optional[List[str]] = None,
-        void: Optional[List[str]] = None,
+        void: Optional[List[str]] = [],
         ignore_index: Optional[int] = 255,
         dbtype: str = "psycopg@ants"
     ) -> None:
@@ -171,7 +171,7 @@ class UnifiedDataModule(L.LightningDataModule):
             collate_fn=self._prepare_batch
         )
 
-    def _prepare_batch(self, batch) -> tuple[torch.Tensor, torch.Tensor]:
+    def _prepare_batch(self, batch, visualize_results: bool = False) -> tuple[torch.Tensor, torch.Tensor]:
 
         def pad_pc_batch(pcs_batch: list[torch.Tensor], lbls_batch: list[torch.Tensor], pad_value=0) -> torch.Tensor:
             for pc, lbls in zip(pcs_batch, lbls_batch):
@@ -282,25 +282,26 @@ class UnifiedDataModule(L.LightningDataModule):
                         else:
                             log.info(f"Cell discarded because it doesn't contain any fusable pixels")
 
-                # Visualization: full image with all points
-                fig, axs = plt.subplots(1, 2, figsize=(12, 6))
-                image_pil = to_pil_image(image)
-                axs[0].imshow(image_pil)
-                axs[0].scatter(points_projected[:, 0], points_projected[:, 1], c='blue', s=1, alpha=0.3)
-                axs[0].set_title("Full Image with All Projected Points")
-                axs[0].axis("off")
-                
-                # Visualization: full image with crop region and points inside crop
-                axs[1].imshow(image_pil)
-                rect = plt.Rectangle((j, i), w, h, linewidth=2, edgecolor='red', facecolor='none')
-                axs[1].add_patch(rect)
-                axs[1].scatter(points_inside_crop[:, 3], points_inside_crop[:, 4], c=np.array(labels_inside_crop), s=1, alpha=0.7)
-                axs[1].set_title("Cropped Region with Points")
-                axs[1].axis("off")
+                if visualize_results:
+                    # Visualization: full image with all points
+                    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+                    image_pil = to_pil_image(image)
+                    axs[0].imshow(image_pil)
+                    axs[0].scatter(points_projected[:, 0], points_projected[:, 1], c='blue', s=1, alpha=0.3)
+                    axs[0].set_title("Full Image with All Projected Points")
+                    axs[0].axis("off")
+                    
+                    # Visualization: full image with crop region and points inside crop
+                    axs[1].imshow(image_pil)
+                    rect = plt.Rectangle((j, i), w, h, linewidth=2, edgecolor='red', facecolor='none')
+                    axs[1].add_patch(rect)
+                    axs[1].scatter(points_inside_crop[:, 3], points_inside_crop[:, 4], c=np.array(labels_inside_crop), s=1, alpha=0.7)
+                    axs[1].set_title("Cropped Region with Points")
+                    axs[1].axis("off")
 
-                plt.tight_layout()
-                plt.savefig(f"imgs/pcls_imgs_projections_dm/projection_comparison_{uuid.uuid4()}.png")
-                plt.close()
+                    plt.tight_layout()
+                    plt.savefig(f"imgs/pcls_imgs_projections_dm/projection_comparison_{uuid.uuid4()}.png")
+                    plt.close()
 
             #else:
                 #log.warning(f"Element not projectable because lidar {lidar_id} != waymo_1")
@@ -320,6 +321,8 @@ class UnifiedDataModule(L.LightningDataModule):
         
         self.prepared_elems += len(images)
         log.info(f"Batch contains {len(images)} elements, total elements: {self.prepared_elems}")
+        #if (self.prepared_elems % 1000) < 30: 
+        #    log.info(f"{self.prepared_elems} prepared")
 
         return images_tensor, image_seg_masks_tensor, point_clouds_padded_tensor, pc_labels_tensor, weather_conditions_tensor, fusable_pixels_tensor, point_pixel_projections
 
