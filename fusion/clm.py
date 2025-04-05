@@ -33,8 +33,8 @@ def create_unimodal_normalized_clm(predictions: torch.Tensor, labels: torch.Tens
     """
     assert(predictions.dim() >= 2), "Predictions must have at least 2 dimensions because required shape is: [...,c]"
     assert(labels.shape == predictions.shape), "Labels must have same shapes as predictions"
-    assert (labels.sum(dim=-1) == 1).all() and ((labels == 0) | (labels == 1)).all(), "Labels must be one-hot encoded (only 0s and 1s, summing to 1 along the last dimension)"
-    assert torch.allclose(predictions.sum(dim=-1), torch.ones_like(predictions[..., 0]), atol=1e-5), "Predictions must sum to 1 across the last dimension"
+    assert(labels.sum(dim=-1) == 1).all() and ((labels == 0) | (labels == 1)).all(), "Labels must be one-hot encoded (only 0s and 1s, summing to 1 along the last dimension)"
+    assert(torch.allclose(predictions.sum(dim=-1), torch.ones_like(predictions[..., 0]), atol=1e-5)), "Predictions must sum to 1 across the last dimension"
 
     clm = torch.einsum("...p,...l->pl", predictions, labels)
     amt_elements = torch.prod(torch.tensor([predictions.shape[0:-1]]))
@@ -95,11 +95,13 @@ def create_multimodal_normalized_clm(cam_predictions: torch.Tensor, lid_predicti
 
     # Create multimodal CLM
     p_r_sc_sl = torch.einsum('r,rc,rl->rcl', p_r, p_cam_if_real, p_lid_if_real) # Numerator of (Rost, eq. 4.9)
-    p_r_sc_sl = p_r_sc_sl / p_r_sc_sl.sum(0)                                    # Denominator of (Rost, eq. 4.9)
+    p_r_sc_sl_normalized = p_r_sc_sl / p_r_sc_sl.sum()                                    # Denominator of (Rost, eq. 4.9)
+    #p_r_sc_sl = p_r_sc_sl / p_r_sc_sl.sum(0)                                    # Denominator of (Rost, eq. 4.9)
 
-    assert(p_r_sc_sl.shape == [amt_classes, amt_classes, amt_classes])
+    assert p_r_sc_sl_normalized.shape == (amt_classes, amt_classes, amt_classes), f"Expected p_r_sc_sl to have shape {[amt_classes, amt_classes, amt_classes]}, but is {p_r_sc_sl_normalized.shape}"
+    assert torch.isclose(p_r_sc_sl_normalized.sum(), torch.tensor(1.0)), f"Expected sum of tensor p_r_sc_sl to be ~1, but got {p_r_sc_sl_normalized.sum()}"
 
-    return p_r_sc_sl
+    return p_r_sc_sl_normalized
 
 def check_create_clm():
     b, h, w, c = 2, 1, 3, 5  # Example dimensions

@@ -96,7 +96,9 @@ class PointNet2(L.LightningModule):
 
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_index)
 
-
+        self.device_for_batches = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        log.info(f"PointNet++ - Device for batches: {self.device_for_batches}")
         log.info(f"PointNet++ - Num classes: {self.num_classes}")
         log.info(f"PointNet++ - Ignore index: {self.ignore_index}")
         log.info(f"PointNet++ - Train epochs: {self.train_epochs}")
@@ -126,10 +128,14 @@ class PointNet2(L.LightningModule):
     def step(self, batch):
         point_clouds, labels = (batch if not self.data_from_udm else (batch[2], batch[3]))
 
-        logits = self(point_clouds)
+        point_clouds_device = point_clouds.to(self.device_for_batches)
+
+        logits = self(point_clouds_device)
         labels = labels.view(-1)
 
-        loss = self.loss_fn(logits, labels)
+        labels_device = labels.to(self.device_for_batches)
+
+        loss = self.loss_fn(logits, labels_device)
 
         return loss, logits, labels 
 
@@ -163,7 +169,7 @@ class PointNet2(L.LightningModule):
 
         return dict(loss=loss, logits=logits)
     
-    def predict_step(self, batch, batch_idx):
+    def predict_step(self, batch: torch.Tensor, batch_idx: int = None):
         loss, logits, labels = self.step(batch)
 
         amt_batch_elems = batch[0].shape[0]
@@ -175,6 +181,7 @@ class PointNet2(L.LightningModule):
 
         logits_list = []
         labels_list = []
+        probs_list = []
 
         for i in range(amt_batch_elems):
             start_idx = i * elems_per_batch
@@ -188,10 +195,17 @@ class PointNet2(L.LightningModule):
             elem_logits = elem_logits[valid_mask]
             elem_labels = elem_labels[valid_mask]
 
+            elem_probs = torch.nn.functional.softmax(elem_logits, dim=-1)
+
+            elem_logits = elem_logits.cpu()
+            elem_probs = elem_probs.cpu()
+            elem_labels = elem_labels.cpu()
+
             logits_list.append(elem_logits)
             labels_list.append(elem_labels)
+            probs_list.append(elem_probs)
 
-        return dict(loss=loss, logits=logits_list, labels=labels_list)
+        return dict(loss=loss, logits=logits_list, labels=labels_list, probs=probs_list)
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=1e-4, weight_decay=1e-6)

@@ -4,7 +4,7 @@
 #SBATCH --mail-type=END,FAIL    
 #SBATCH --mail-user=reinig@ovgu.de
 #SBATCH --nodes=1
-#SBATCH --gpus=a40:1
+#SBATCH --gpus=h100:1
 #SBATCH --cpus-per-gpu=5
 #SBATCH --mem=300G
 #SBATCH --output=../logs/slurm/%x-%j.out

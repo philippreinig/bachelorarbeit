@@ -18,7 +18,7 @@ from akiset.utils.transform import project_vehicle_to_image_waymo
 log = logging.getLogger("rich")
 
 
-class UnifiedDataModule(L.LightningDataModule):
+class   UnifiedDataModule(L.LightningDataModule):
     def __init__(
         self,
         scenario: str = "all",
@@ -70,6 +70,13 @@ class UnifiedDataModule(L.LightningDataModule):
         self.grid_cells = grid_cells
 
         self.prepared_elems = 0
+        self.discarded_cells = 0
+
+        if scenario == "combined":
+            self.scenario = "all"
+            self.order_by = "weather"
+            self.val_limit = 650
+            self.test_limit = 300
 
         log.info(f"Valid indxs: {self.valid_idx}")
         log.info(f"Void indxs: {self.void_idx}")
@@ -127,6 +134,7 @@ class UnifiedDataModule(L.LightningDataModule):
             splits=["validation"],
             scenario=self.scenario,
             datasets=self.datasets,
+            orderby=self.order_by,
             limit=self.val_limit,
             dbtype=self.dbtype,
             shuffle=self.shuffle
@@ -138,6 +146,7 @@ class UnifiedDataModule(L.LightningDataModule):
             scenario=self.scenario,
             datasets=self.datasets,
             dbtype=self.dbtype,
+            orderby=self.order_by,
             limit=self.test_limit,
             shuffle=self.shuffle
         )
@@ -280,7 +289,7 @@ class UnifiedDataModule(L.LightningDataModule):
                             fusable_pixels_masks.append(fusable_pixels_cell_mask)
 
                         else:
-                            log.info(f"Cell discarded because it doesn't contain any fusable pixels")
+                            self.discarded_cells += 1
 
                 if visualize_results:
                     # Visualization: full image with all points
@@ -321,8 +330,7 @@ class UnifiedDataModule(L.LightningDataModule):
         
         self.prepared_elems += len(images)
         log.info(f"Batch contains {len(images)} elements, total elements: {self.prepared_elems}")
-        #if (self.prepared_elems % 1000) < 30: 
-        #    log.info(f"{self.prepared_elems} prepared")
+        log.info(f"Discarded cells after this batch: {self.discarded_cells}")
 
         return images_tensor, image_seg_masks_tensor, point_clouds_padded_tensor, pc_labels_tensor, weather_conditions_tensor, fusable_pixels_tensor, point_pixel_projections
 

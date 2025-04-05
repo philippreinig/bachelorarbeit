@@ -5,7 +5,7 @@ from matplotlib.ticker import MultipleLocator
 
 def create_waymo_images_distribution_plot():
     # Data
-    categories = ["Total", "Sunny", "Rain", "Sunny w/\nSegmentation Masks", "Rain w/\nSegmentation Masks"]
+    categories = ["Total", "Sunny", "Rain", "Sunny with\nLabels", "Rain with\nLabels"]
     values = [990340, 984375, 5965, 75355, 325]
 
     assert(values[0] == values[1] + values[2])
@@ -19,7 +19,7 @@ def create_waymo_images_distribution_plot():
 
     # Labels and title
     ax.set_xticks(x)
-    ax.set_xticklabels(categories, rotation=90)
+    ax.set_xticklabels(categories) # ,rotation=90
     ax.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.0f}"))
     ax.set_ylabel("Number of Images")
     ax.set_title("Distribution of Images in WOD")
@@ -47,7 +47,7 @@ def create_waymo_images_distribution_plot():
 
 def create_waymo_point_clouds_distribution_plot():
     # Data
-    categories = ["Total", "Sunny", "Rain", "Sunny w/\nSegmentation Labels", "Rain w/\nSegmentation Labels"]
+    categories = ["Total", "Sunny", "Rain", "Sunny with\nLabels", "Rain with\nLabels"]
     values = [989936, 983971, 5965, 29517, 150]
 
     assert(values[0] == values[1] + values[2])
@@ -62,7 +62,7 @@ def create_waymo_point_clouds_distribution_plot():
 
     # Labels and title
     ax.set_xticks(x)
-    ax.set_xticklabels(categories, rotation=90)
+    ax.set_xticklabels(categories)
     ax.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.0f}"))
     ax.set_ylabel("Number of Point Clouds")
     ax.set_title("Distribution of Point Clouds in WOD")
@@ -173,8 +173,9 @@ def weather_conditions_in_splits_distribution_plot():
     plt.show()
 
 if __name__ == "__main__":
-    #create_waymo_images_distribution_plot()
-    #create_waymo_point_clouds_distribution_plot()
+    create_waymo_images_distribution_plot()
+    create_waymo_point_clouds_distribution_plot()
+    """
     amt_instances_per_class_rain = [
         10950918, 0, 57868792, 7239604, 0, 948, 810007, 62050014, 104316999, 3012,
         131, 2212550, 179896348, 6404749, 203176894, 34706167, 0, 0, 69423, 490195,
@@ -186,4 +187,5 @@ if __name__ == "__main__":
         32634127,   915882531,   336761616]
     amt_instances_per_class_rain_val_set = [2243204, 0, 21095491, 1488030, 0, 0, 2099, 17181775, 18204670, 0, 0, 581121, 29529947, 844114, 40045962, 5318218, 0, 0, 10020, 87449, 0, 0, 3356570, 67326, 0, 19252, 272]
     create_label_histogram_plot(amt_instances_per_class_rain_val_set, "Rainy")
-    #weather_conditions_in_splits_distribution_plot()
+    #weather_conditions_in_splits_distribution_plot()"
+    """

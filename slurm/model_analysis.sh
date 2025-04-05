@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=eval
+#SBATCH --job-name=model_analysis
 #SBATCH --partition=gpu
 #SBATCH --mail-type=END,FAIL    
 #SBATCH --mail-user=reinig@ovgu.de
 #SBATCH --nodes=1
-#SBATCH --gpus=1
+#SBATCH --gpus=a40:1
 #SBATCH --cpus-per-gpu=5
-#SBATCH --mem=300G
+#SBATCH --mem=350G
 #SBATCH --output=../logs/slurm/%x-%j.out
 
 cd ~/development/bachelorarbeit/

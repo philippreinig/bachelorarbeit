@@ -73,17 +73,17 @@ class SemanticImageSegmentationModel(LightningModule):
         ignore_index: int = 255,
         compile: bool = False,
         train_epochs: int = 30,
-        crop_size: tuple[int, int] = (800, 1600),
+        output_image_size: tuple[int, int] = (800, 1600),
         data_from_udm: bool = False,
     ):
         super().__init__()
 
-        self.crop_size = crop_size
+        self.output_image_size = output_image_size
         self.data_from_udm = data_from_udm
 
         self.encoder = timm.create_model("resnet18", features_only=True, pretrained=True, output_stride=16)
         pyramid = self.encoder.feature_info.channels()
-        self.decoder = LRASPP(pyramid, num_classes, self.crop_size)
+        self.decoder = LRASPP(pyramid, num_classes, self.output_image_size)
 
         if compile:
             self.encoder = torch.compile(self.encoder)
@@ -94,6 +94,7 @@ class SemanticImageSegmentationModel(LightningModule):
         
         self.train_epochs = train_epochs
 
+        self.device_for_batches = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.train_acc = tm.classification.Accuracy(task="multiclass", num_classes=self.num_classes, ignore_index=ignore_index, average="micro")
         self.val_acc = tm.classification.Accuracy(task="multiclass", num_classes=self.num_classes, ignore_index=ignore_index, average="micro")
@@ -108,9 +109,9 @@ class SemanticImageSegmentationModel(LightningModule):
 
     def step(self, batch):
         images, labels = (batch if not self.data_from_udm else (batch[0], batch[1])) 
-        images = images.to(memory_format=torch.channels_last)
+        images = images.to(memory_format=torch.channels_last).to(self.device_for_batches)
         logits = self(images)
-        return self.loss_fn(logits, labels), logits, labels
+        return self.loss_fn(logits, labels.to(self.device_for_batches)), logits, labels
 
     def training_step(self, batch, batch_idx):
         loss, logits, labels = self.step(batch)
@@ -142,11 +143,19 @@ class SemanticImageSegmentationModel(LightningModule):
 
         return dict(loss=loss, logits=logits)
     
-    def predict_step(self, batch, batch_idx):
-
+    def predict_step(self, batch, batch_idx: int = None):
         loss, logits, labels = self.step(batch)
 
-        return dict(loss=loss, logits=logits, labels=labels)
+        logits = logits.cpu()
+        labels = labels.cpu()
+        logits = logits.permute(0, 2, 3, 1)
+        probs = torch.nn.functional.softmax(logits, dim=-1)     
+    
+        assert(logits.device == torch.device("cpu")), f"Expected logits to be on device cpu, but they are on device {logits.device}"
+        assert(labels.device == torch.device("cpu")), f"Expected labels to be on device cpu, but they are on device {labels.device}"
+        assert(probs.device == torch.device("cpu")), f"Expected probs to be on device cpu, but they are on device {probs.device}"
+
+        return dict(loss=loss, logits=logits, labels=labels, probs=probs)
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=1e-4, weight_decay=1e-6)
